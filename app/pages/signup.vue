@@ -54,9 +54,10 @@ const providers = [{
         callbackURL: '/',
         fetchOptions: {
           onError: (context) => {
+            console.log(context);
             toast.add({
               title: "Please try again",
-              description: context?.error?.message || "Please check your email and password",
+              description: context?.error?.message || "Unknown errors",
             });
           }
         }
