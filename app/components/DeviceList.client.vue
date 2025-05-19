@@ -44,7 +44,7 @@ const fetchDevices = async () => {
     devices.value = processedData;
 
     // Log connected devices for debugging
-    const connectedDevices = processedData.filter((d: any) => d.isConnected);
+    const connectedDevices = processedData.filter((d: Device) => d.isConnected);
     console.log(`${connectedDevices.length} devices are currently connected`);
 
     return processedData;
