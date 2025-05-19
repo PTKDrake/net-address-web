@@ -10,7 +10,7 @@
       <p class="text-xl max-w-3xl mx-auto mb-8">
         The modern solution for managing and monitoring your network devices
       </p>
-      <img src="/network.png" alt="Network Illustration" class="max-w-md mx-auto mb-6" />
+      <img src="/network.png" alt="Network Illustration" class="md:max-w-md mx-auto mb-6" />
       <UButton to="/about" size="lg" color="primary">Learn More</UButton>
     </div>
 

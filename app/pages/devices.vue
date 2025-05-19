@@ -1,7 +1,7 @@
 <template>
   <div class="container px-4 py-8 flex flex-col items-center gap-y-15">
-    <h1 class="text-2xl font-bold">
-      Danh sách thiết bị đang kết nối
+    <h1 class="text-2xl font-bold ">
+      Devices linked to your account
     </h1>
     
     <!-- Sử dụng client component để xử lý kết nối Socket.IO -->
@@ -20,9 +20,9 @@
 
 // Cài đặt tiêu đề trang
 useHead({
-  title: 'Danh sách thiết bị',
+  title: 'Devices management',
   meta: [
-    { name: 'description', content: 'Quản lý và điều khiển thiết bị từ xa' }
+    { name: 'description', content: 'Devices management remotely' }
   ]
 });
 </script>

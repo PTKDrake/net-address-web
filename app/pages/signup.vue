@@ -86,9 +86,13 @@ const handleSignupEmail = async (payload: FormSubmitEvent<Schema>) => {
     fetchOptions: {
       onError: (context) => {
         toast.add({
-          title: "Please try again",
+          title: "Sign up failed",
           description: context?.error?.message || "Please check your email and password",
+          color: 'danger',
         });
+        if(context?.error?.code == "USER_ALREADY_EXISTS"){
+          navigateTo('/login');
+        }
       },
       onSuccess: () => {
         navigateTo(`/email-verification?email=${encodeURIComponent(payload.data.email)}`);

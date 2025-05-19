@@ -1,11 +1,10 @@
 <template>
   <nav
-    class="navbar fixed backdrop-blur-md z-50 py-2 px-3 md:px-10 drop-shadow-2xl transition-all duration-300"
+    class="navbar fixed backdrop-blur-md z-50 py-2 px-3 md:px-10 drop-shadow-2xl transition-all duration-300 card rounded-2xl left-[2%] right-[2%]"
     :class="{ 
-      'top-[2%] left-[2%] right-[2%]': (!isHidden || isMenuOpen) && lastScrollY < 50,
-      'top-[2%] left-[18%] right-[18%]': (!isHidden || isMenuOpen) && lastScrollY >= 50,
-      '-top-20 left-[18%] right-[18%]': isHidden && !isMenuOpen,
-      'card rounded-2xl': true
+      'top-[2%] md:left-[18%] md:right-[18%]': (!isHidden || isMenuOpen) && lastScrollY < 50,
+      'top-[2%] md:left-[25%] md:right-[25%]': (!isHidden || isMenuOpen) && lastScrollY >= 50,
+      '-top-20 md:left-[25%] md:right-[25%]': isHidden && !isMenuOpen,
     }">
     <div class="flex items-center justify-between">
       <ClientOnly>

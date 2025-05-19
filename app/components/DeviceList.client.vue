@@ -50,7 +50,7 @@ const fetchDevices = async () => {
     return processedData;
   } catch (err: any) {
     console.error('Error fetching devices:', err);
-    error.value = err.message || 'Không thể tải danh sách thiết bị';
+    error.value = err.message || 'Unable to load device list';
     return [];
   } finally {
     loading.value = false;
@@ -83,8 +83,8 @@ const handleShutdown = async (macAddress: string) => {
         }
 
         toast.add({
-          title: 'Thành công',
-          description: 'Đã gửi lệnh tắt máy qua socket',
+          title: 'Success',
+          description: 'Shutdown command sent via socket',
         });
         return;
       }
@@ -114,8 +114,8 @@ const handleShutdown = async (macAddress: string) => {
       }
 
       toast.add({
-        title: 'Thành công',
-        description: 'Đã gửi lệnh tắt máy qua API',
+        title: 'Success',
+        description: 'Shutdown command sent via API',
       });
     }
   } catch (err: any) {
@@ -145,8 +145,8 @@ const setupSocketListeners = () => {
 
       if(!devices.value[index]?.isConnected){
         toast.add({
-          title: 'Kết nối trở lại',
-          description: `Thiết bị ${updatedDevice.name} đã kết nối trở lại`,
+          title: 'Reconnected',
+          description: `Device ${updatedDevice.name} has reconnected`,
           color: 'success'
         });
       }
@@ -166,8 +166,8 @@ const setupSocketListeners = () => {
 
       // Show notification for new device
       toast.add({
-        title: 'Thiết bị mới',
-        description: `Thiết bị ${updatedDevice.name} đã kết nối`,
+        title: 'New Device',
+        description: `Device ${updatedDevice.name} has connected`,
         color: 'success'
       });
     }
@@ -188,8 +188,8 @@ const setupSocketListeners = () => {
       devices.value = [...devices.value];
 
       toast.add({
-        title: 'Thiết bị ngắt kết nối',
-        description: `Thiết bị ${device.name} đã ngắt kết nối`,
+        title: 'Device Disconnected',
+        description: `Device ${device.name} has disconnected`,
         color: 'warning'
       });
     }
@@ -207,8 +207,8 @@ const setupSocketListeners = () => {
       devices.value = [...devices.value];
 
       toast.add({
-        title: 'Thiết bị đã tắt',
-        description: `Thiết bị ${device.name} đã tắt máy`,
+        title: 'Device Shutdown',
+        description: `Device ${device.name} has shut down`,
         color: 'info'
       });
     }
@@ -280,10 +280,10 @@ const formatDate = (date?: Date) => {
   <div class="container mx-auto px-4 py-6 ">
     <!-- Header with refresh button and device count -->
     <div class="flex justify-between items-center mb-6">
-      <h1 class="text-2xl font-bold">Quản lý thiết bị</h1>
+      <h1 class="text-2xl font-bold">Device management</h1>
       <div class="flex items-center gap-2">
         <span v-if="!loading && devices.length > 0" class="text-sm">
-          {{ devices.length }} thiết bị
+          {{ devices.length }} devices
         </span>
         <UButton
           variant="ghost"
@@ -310,15 +310,15 @@ const formatDate = (date?: Date) => {
     <!-- Loading state -->
     <div v-if="loading" class="flex flex-col items-center justify-center py-12">
       <UIcon name="i-heroicons-arrow-path" class="animate-spin h-12 w-12 mb-4 text-primary" />
-      <p>Đang tải danh sách thiết bị...</p>
+      <p>Loading device list...</p>
     </div>
 
     <!-- Empty state -->
     <div v-if="!loading && (!devices || devices.length === 0)" class="flex flex-col items-center justify-center py-16 card rounded-lg">
       <UIcon name="i-heroicons-computer-desktop" class="h-16 w-16 mb-4" />
-      <h3 class="text-xl font-medium mb-2">Không có thiết bị nào</h3>
+      <h3 class="text-xl font-medium mb-2">No devices connected</h3>
       <p class="mb-6 text-center max-w-md">
-        Không tìm thấy thiết bị nào đang kết nối với tài khoản của bạn.
+        No devices are currently connected to your account.
       </p>
       <UButton
         variant="outline"
@@ -331,8 +331,8 @@ const formatDate = (date?: Date) => {
 
     <!-- Device grid -->
     <div v-if="!loading && devices && devices.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-      <div 
-        v-for="device in devices" 
+      <div
+        v-for="device in devices"
         :key="device.macAddress"
         class="rounded-xl border bg-card shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden"
       >
@@ -340,14 +340,14 @@ const formatDate = (date?: Date) => {
         <div class="p-6 pb-4 border-b card">
           <div class="flex items-center justify-between">
             <h3 class="text-xl font-semibold truncate">{{ device.name }}</h3>
-            <UBadge 
+            <UBadge
               :color="device.isConnected ? 'success' : 'error'"
               class="ml-2"
               size="sm"
             >
               <div class="flex items-center gap-1">
                 <div class="h-2 w-2 rounded-full" :class="device.isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'"></div>
-                {{ device.isConnected ? 'Đang kết nối' : 'Đã ngắt kết nối' }}
+                {{ device.isConnected ? 'Connected' : 'Disconnected' }}
               </div>
             </UBadge>
           </div>
@@ -358,7 +358,7 @@ const formatDate = (date?: Date) => {
           <div class="flex items-center">
             <UIcon name="i-heroicons-globe-alt" class="h-5 w-5 mr-3" />
             <div>
-              <div class="text-sm">Địa chỉ IP</div>
+              <div class="text-sm">IP Address</div>
               <div class="font-medium">{{ device.ipAddress }}</div>
             </div>
           </div>
@@ -366,7 +366,7 @@ const formatDate = (date?: Date) => {
           <div class="flex items-center">
             <UIcon name="i-heroicons-cpu-chip" class="h-5 w-5 mr-3" />
             <div>
-              <div class="text-sm">Địa chỉ MAC</div>
+              <div class="text-sm">MAC Address</div>
               <div class="font-medium">{{ device.macAddress }}</div>
             </div>
           </div>
@@ -374,7 +374,7 @@ const formatDate = (date?: Date) => {
           <div class="flex items-center">
             <UIcon name="i-heroicons-clock" class="h-5 w-5  mr-3" />
             <div>
-              <div class="text-sm ">Lần cuối kết nối</div>
+              <div class="text-sm ">Last Seen</div>
               <div class="font-medium">{{ formatDate(device.lastSeen) }}</div>
             </div>
           </div>
@@ -382,18 +382,22 @@ const formatDate = (date?: Date) => {
 
         <!-- Card footer with action button -->
         <div class="p-4 card">
-          <UButton 
-            icon="i-heroicons-power" 
+          <UButton
+            icon="i-heroicons-power"
             :color="device.isConnected ? 'success' : 'error'"
-            class="w-full" 
+            class="w-full"
             :loading="shuttingDown.includes(device.macAddress)"
             :disabled="!device.isConnected || shuttingDown.includes(device.macAddress)"
             @click="handleShutdown(device.macAddress)"
           >
-            {{ shuttingDown.includes(device.macAddress) ? 'Đang tắt máy...' : 'Tắt máy' }}
+            {{ shuttingDown.includes(device.macAddress) ? 'Shutting down...' : 'Offline' }}
           </UButton>
         </div>
       </div>
     </div>
   </div>
-</template> 
+</template>
+
+
+
+
