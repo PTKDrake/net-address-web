@@ -390,7 +390,7 @@ const formatDate = (date?: Date) => {
             :disabled="!device.isConnected || shuttingDown.includes(device.macAddress)"
             @click="handleShutdown(device.macAddress)"
           >
-            {{ shuttingDown.includes(device.macAddress) ? 'Shutting down...' : 'Offline' }}
+            {{ device.isConnected ? 'Shut down' : 'Offline' }}
           </UButton>
         </div>
       </div>

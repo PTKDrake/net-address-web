@@ -42,8 +42,6 @@ const providers = [
               title: "Please try again",
               description: context?.error?.message || "Unknown errors",
             });
-          },
-          onSuccess: (context) => {
           }
         }
       })
