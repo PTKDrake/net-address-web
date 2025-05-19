@@ -1,0 +1,63 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+@theme static {
+    --color-surface: #ffffff;
+    --color-surface-50: #fbfcfc;
+    --color-surface-100: #F7F9F8;
+    --color-surface-200: #EFF3F2;
+    --color-surface-300: #DADEDD;
+    --color-surface-400: #B1B7B6;
+    --color-surface-500: #828787;
+    --color-surface-600: #5F7274;
+    --color-surface-700: #415B61;
+    --color-surface-800: #29444E;
+    --color-surface-900: #183240;
+    --color-surface-950: #0c1920;
+    /* 0: '#ffffff', 50: '#f3f3f3', 100: '#e7e7e8', 200: '#cfd0d0', 300: '#b7b8b9', 400: '#9fa1a1', 500: '#87898a', 600: '#6e7173', 700: '#565a5b', 800: '#3e4244', 900: '#262b2c', 950: '#0e1315' */
+    /* --color-surface: #ffffff;
+    --color-surface-50: #f3f3f3;
+    --color-surface-100: #e7e7e8;
+    --color-surface-200: #cfd0d0;
+    --color-surface-300: #b7b8b9;
+    --color-surface-400: #9fa1a1;
+    --color-surface-500: #87898a;
+    --color-surface-600: #6e7173;
+    --color-surface-700: #565a5b;
+    --color-surface-800: #3e4244;
+    --color-surface-900: #262b2c;
+    --color-surface-950: #0e1315; */
+    
+}
+
+:root {
+    --content-background: var(--color-surface);
+    --surface-ground: var(--color-surface-100);
+    --text-color: var(--color-surface-700);
+    --surface-card: var(--color-surface);
+
+    &.dark {
+        --content-background: var(--color-surface-900);
+        --surface-ground: var(--color-surface-950);
+        --text-color: var(--color-surface);
+        --surface-card: var(--color-surface-900);
+    }
+}
+
+body {
+    color: var(--text-color);
+    background-color: var(--surface-ground);
+}
+
+.card {
+    background-color: var(--surface-card);
+    color: var(--text-color);
+}
+
+.navbar {
+    background-color: var(--content-background);
+}
+
+.bg-default{
+    background-color: var(--surface-card);
+}
