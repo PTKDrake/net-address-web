@@ -1,46 +1,42 @@
-import { authClient } from "~~/lib/auth-client";
+import { getSession } from '~~/lib/auth-client';
+
+// List of public routes that don't require authentication
+const publicRoutes = [
+    '/auth/signin',
+    '/auth/signup',
+    '/auth/verify-email',
+    '/auth/forgot-password',
+    '/auth/reset-password',
+    '/',
+];
 
 export default defineNuxtRouteMiddleware(async (to) => {
-    // Danh sách các route công khai, không cần xác thực
-    const publicRoutes = [
-        '/login',
-        '/signup',
-        '/register',
-        '/auth/callback',
-        '/signout',
-        '/email-verification',
-        '/forgot-password',
-        '/reset-password',
-    ];
-
-    // Kiểm tra xem đường dẫn hiện tại có nằm trong danh sách công khai
-    const isPublicRoute = publicRoutes.some(route =>
-        to.path === route || to.path.startsWith('/auth/')
-    );
-
-    // Lấy thông tin phiên
-    const { data: session } = await authClient.useSession(useFetch);
-    let user = session.value?.user;
-    if(isPublicRoute) {
-        const { data: session } = await authClient.getSession();
-        user = session?.user;
-    }
-
-    // Xác định xem người dùng đã đăng nhập chưa
-    const isAuthenticated = !!user;
-
-    // Xử lý các route xác thực (login/signup)
-    if (to.path === '/login' || to.path === '/signup') {
-        // Nếu đã đăng nhập, chuyển hướng về trang chủ
-        if (isAuthenticated) {
-            return navigateTo('/');
+    // Check if the current path is in the public list
+    const isPublicRoute = publicRoutes.some(route => {
+        if (route === '/') {
+            return to.path === '/';
         }
-        // Nếu chưa đăng nhập, cho phép truy cập
+        return to.path.startsWith(route);
+    });
+
+    // If it's a public route, allow access
+    if (isPublicRoute) {
         return;
     }
 
-    // Nếu cố gắng truy cập route bảo vệ, nhưng chưa đăng nhập
-    if (!isPublicRoute && !isAuthenticated) {
-        return navigateTo('/login');
+    // Check if user is logged in
+    const session = await getSession();
+    const isLoggedIn = !!session.data?.user;
+
+    if (isLoggedIn) {
+        // If logged in, redirect to home page
+        if (to.path === '/auth/signin' || to.path === '/auth/signup') {
+            return navigateTo('/dashboard');
+        }
+    } else {
+        // If not logged in and trying to access protected route, redirect to login
+        if (!isPublicRoute) {
+            return navigateTo('/auth/signin');
+        }
     }
 });

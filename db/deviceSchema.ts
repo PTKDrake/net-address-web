@@ -51,16 +51,15 @@ export const devices = pgTable('devices', {
     macAddress: varchar('mac_address', {length: 17}).unique().notNull(), // Format: XX:XX:XX:XX:XX:XX
     userId: text('user_id').references(() => user.id).notNull(),
     name: varchar('name', {length: 100}).notNull(),
-    ipAddress: varchar('ip_address', {length: 45}).notNull(), // IPv6 có thể dài đến 45 ký tự
+    ipAddress: varchar('ip_address', {length: 45}).notNull(), // IPv6 can be up to 45 characters
     isConnected: boolean('is_connected').default(false).notNull(),
     hardware: json('hardware').$type<HardwareInfo>(), // JSON field for hardware information
-    test: varchar('test'),
     lastSeen: timestamp('last_seen').defaultNow(),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow()
 });
 
-// Định nghĩa quan hệ với bảng user
+// Define relationship with user table
 export const devicesRelations = relations(devices, ({one}) => ({
     user: one(user, {
         fields: [devices.userId],
@@ -68,5 +67,5 @@ export const devicesRelations = relations(devices, ({one}) => ({
     }),
 }));
 
-// Type cho Device
+// Type for Device
 export type Device = InferSelectModel<typeof devices>;

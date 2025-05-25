@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { authClient } from '~~/lib/auth-client';
+
 definePageMeta({
   layout: 'auth'
 })
@@ -13,14 +15,16 @@ const loading = ref(false)
 const toast = useToast()
 const router = useRouter()
 
-// Lấy email từ query params nếu có
+// Get email from query params if available
 onMounted(() => {
   const route = useRoute()
-  if (route.query.email) {
-    email.value = route.query.email as string
+  const queryEmail = route.query.email as string
+
+  // If no email, redirect to signup page
+  if (!queryEmail) {
+    navigateTo('/auth/signup')
   } else {
-    // Nếu không có email, chuyển về trang đăng ký
-    router.push('/signup')
+    email.value = queryEmail
   }
 })
 
@@ -29,32 +33,29 @@ const handleResendEmail = async () => {
     toast.add({
       title: "Error",
       description: "No email address found",
-      variant: "destructive",
+      color: "error",
     })
     return
   }
 
   loading.value = true
   try {
-    await signUp.resendVerificationEmail({
+    await authClient.sendVerificationEmail({
       email: email.value,
-      callbackUrl: `/email-verification?email=${encodeURIComponent(email.value)}`,
-      fetchOptions: {
-        onError: (context) => {
-          toast.add({
-            title: "Error",
-            description: context?.error?.message || "Failed to resend verification email",
-            variant: "destructive",
-          })
-        }
-      }
+      callbackURL: `/email-verification?email=${encodeURIComponent(email.value)}`,
     })
     toast.add({
       title: "Success",
       description: "Verification email has been resent",
+      color: "success",
     })
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error resending verification email:', error)
+    toast.add({
+      title: "Error",
+      description: error?.message || "Failed to resend verification email",
+      color: "error",
+    })
   } finally {
     loading.value = false
   }
@@ -99,7 +100,7 @@ const handleResendEmail = async () => {
       <div class="text-center text-sm text-muted">
         <p>
           Already verified? <ULink
-            to="/login"
+            to="/auth/signin"
             class="text-primary font-medium"
           >Sign in</ULink>
         </p>

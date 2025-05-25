@@ -41,7 +41,7 @@ const router = useRouter();
 const toast = useToast();
 const isSubmitting = ref(false);
 
-// Định nghĩa fields cho form
+// Define fields for form
 const fields = [{
   name: 'firstName',
   type: 'text' as const,
@@ -56,7 +56,7 @@ const fields = [{
   required: true
 }];
 
-// Định nghĩa schema validation
+// Define validation schema
 const schema = z.object({
   firstName: z.string().min(1, 'Please enter your first name'),
   lastName: z.string().min(1, 'Please enter your last name'),
@@ -64,11 +64,10 @@ const schema = z.object({
 
 type Schema = z.output<typeof schema>;
 
-// Nếu đã có first name và last name rồi thì chuyển hướng về trang chủ
+// If already have first name and last name, redirect to home page
 onMounted(() => {
-  const userData = session.value?.data?.user;
-  if (userData?.firstName && userData?.lastName) {
-    router.push('/');
+  if (session.value?.data?.user?.name) {
+    navigateTo('/dashboard');
   }
 });
 
@@ -76,29 +75,29 @@ const submitProfile = async (event: FormSubmitEvent<Schema>) => {
   try {
     isSubmitting.value = true;
     
-    // Lấy dữ liệu từ form đã xác thực
+    // Get data from validated form
     const { firstName, lastName } = event.data;
     
-    // Sử dụng updateUser từ better-auth
+    // Use updateUser from better-auth
     await updateUser({
       firstName: firstName.trim(),
       lastName: lastName.trim()
     });
 
     toast.add({
-      title: 'Thành công',
-      description: 'Hồ sơ của bạn đã được cập nhật',
-      variant: 'success'
+      title: 'Success',
+      description: 'Your profile has been updated',
+      color: 'success'
     });
 
-    // Chuyển hướng đến trang chủ
-    router.push('/');
+    // Redirect to home page
+    navigateTo('/dashboard');
   } catch (error) {
     console.error('Error updating profile:', error);
     toast.add({
-      title: 'Lỗi',
-      description: 'Không thể cập nhật hồ sơ. Vui lòng thử lại.',
-      variant: 'destructive'
+      title: 'Error',
+      description: 'Unable to update profile. Please try again.',
+      color: 'error'
     });
   } finally {
     isSubmitting.value = false;

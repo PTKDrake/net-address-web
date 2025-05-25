@@ -1,16 +1,16 @@
-// Ví dụ sử dụng WebSocket Message Validator
-// File này chỉ để minh họa, không được sử dụng trong production
+// WebSocket Message Validator Usage Examples
+// This file is for demonstration only, not for production use
 
 import type { Peer } from "crossws";
 import { WebSocketMessageValidator } from './validators';
 
-// Khởi tạo
+// Initialize
 const computerConnections = new Map<string, Peer>();
 const messageValidator = new WebSocketMessageValidator(computerConnections);
 
-// Ví dụ các message hợp lệ
+// Valid message examples
 const exampleMessages = {
-  // Đăng ký thiết bị mới với thông tin phần cứng đầy đủ
+  // Register new device with complete hardware information
   register: {
     messageType: "register",
     userId: "user123",
@@ -68,13 +68,13 @@ const exampleMessages = {
     }
   },
 
-  // Kiểm tra thiết bị tồn tại
+  // Check if device exists
   exists: {
     messageType: "exists",
     macAddress: "00:11:22:33:44:55"
   },
 
-  // Cập nhật thông tin thiết bị với hardware mới
+  // Update device information with new hardware
   update: {
     messageType: "update",
     macAddress: "00:11:22:33:44:55",
@@ -85,57 +85,57 @@ const exampleMessages = {
         model: "Intel Core i7-12700K",
         cores: 12,
         speed: 3.6,
-        usage: 45.2 // CPU usage đã thay đổi
+        usage: 45.2 // CPU usage has changed
       },
       memory: {
         total: 32,
-        used: 20.1, // Memory usage đã thay đổi
+        used: 20.1, // Memory usage has changed
         available: 11.9,
         usage: 62.8
       },
       storage: {
         total: 1000,
-        used: 475, // Storage đã thay đổi
+        used: 475, // Storage has changed
         available: 525,
         usage: 47.5
       }
     }
   },
 
-  // Ngắt kết nối thiết bị
+  // Disconnect device
   disconnect: {
     messageType: "disconnect",
     macAddress: "00:11:22:33:44:55"
   },
 
-  // Tắt thiết bị
+  // Shutdown device
   shutdown: {
     messageType: "shutdown",
     macAddress: "00:11:22:33:44:55"
   }
 };
 
-// Ví dụ các message không hợp lệ
+// Invalid message examples
 const invalidMessages = {
-  // Thiếu messageType
+  // Missing messageType
   noMessageType: {
     macAddress: "00:11:22:33:44:55",
     ipAddress: "192.168.1.100"
   },
 
-  // messageType không hợp lệ
+  // Invalid messageType
   invalidMessageType: {
     messageType: "invalid",
     macAddress: "00:11:22:33:44:55"
   },
 
-  // Thiếu dữ liệu bắt buộc
+  // Missing required data
   missingData: {
     messageType: "register",
-    // Thiếu macAddress, ipAddress, machineName
+    // Missing macAddress, ipAddress, machineName
   },
 
-  // Dữ liệu rỗng
+  // Empty data
   emptyData: {
     messageType: "register",
     macAddress: "",
@@ -143,7 +143,7 @@ const invalidMessages = {
     machineName: ""
   },
 
-  // Hardware data không hợp lệ
+  // Invalid hardware data
   invalidHardware: {
     messageType: "register",
     userId: "user123",
@@ -153,14 +153,14 @@ const invalidMessages = {
     hardware: {
       cpu: {
         model: "Intel i7",
-        cores: "invalid", // Phải là number
+        cores: "invalid", // Must be number
         speed: 3.6
       }
     }
   }
 };
 
-// Hàm mô phỏng xử lý message
+// Function to simulate message processing
 async function simulateMessageProcessing(message: any, mockPeer: any) {
   console.log('Processing message:', JSON.stringify(message, null, 2));
   
@@ -174,14 +174,14 @@ async function simulateMessageProcessing(message: any, mockPeer: any) {
   console.log('---');
 }
 
-// Mock peer object để test
+// Mock peer object for testing
 const mockPeer = {
   send: (data: any) => {
     console.log('📤 Response sent:', typeof data === 'string' ? data : JSON.stringify(data));
   }
 } as Peer;
 
-// Hàm chạy ví dụ
+// Function to run examples
 export async function runExamples() {
   console.log('🚀 WebSocket Message Validator Examples\n');
 
@@ -198,5 +198,5 @@ export async function runExamples() {
   }
 }
 
-// Uncomment để chạy ví dụ
+// Uncomment to run examples
 // runExamples(); 

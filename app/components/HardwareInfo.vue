@@ -54,10 +54,10 @@ const formatUptime = (seconds: number) => {
 
 // Get usage color based on percentage
 const getUsageColor = (usage?: number) => {
-  if (!usage) return 'gray';
-  if (usage < 50) return 'green';
-  if (usage < 80) return 'yellow';
-  return 'red';
+  if (!usage) return 'neutral';
+  if (usage < 50) return 'success';
+  if (usage < 80) return 'warning';
+  return 'error';
 };
 
 const hardwareInfo = computed(() => formatHardwareInfo(props.hardware));

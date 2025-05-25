@@ -1,78 +1,78 @@
 # WebSocket Message Validator
 
-Hệ thống validator này được thiết kế để xử lý và validate các message WebSocket một cách có cấu trúc và an toàn, bao gồm thông tin phần cứng chi tiết.
+This validator system is designed to handle and validate WebSocket messages in a structured and secure way, including detailed hardware information.
 
-## Cấu trúc
+## Structure
 
 ### 1. Schemas (Zod Validation)
-Mỗi loại message có schema riêng để validate:
-- `RegisterSchema`: Đăng ký thiết bị mới với thông tin phần cứng
-- `ExistsSchema`: Kiểm tra thiết bị có tồn tại không
-- `UpdateSchema`: Cập nhật thông tin thiết bị và phần cứng
-- `DisconnectSchema`: Ngắt kết nối thiết bị
-- `ShutdownSchema`: Tắt thiết bị
+Each message type has its own schema for validation:
+- `RegisterSchema`: Register new device with hardware information
+- `ExistsSchema`: Check if device exists
+- `UpdateSchema`: Update device and hardware information
+- `DisconnectSchema`: Disconnect device
+- `ShutdownSchema`: Shutdown device
 
 ### 2. Hardware Information Schema
-Hệ thống hỗ trợ thu thập thông tin phần cứng chi tiết:
-- **CPU**: Model, số cores, tốc độ, usage
-- **Memory**: Tổng dung lượng, đã sử dụng, còn trống, usage
-- **Storage**: Tổng dung lượng, đã sử dụng, còn trống, usage
+The system supports collecting detailed hardware information:
+- **CPU**: Model, cores, speed, usage
+- **Memory**: Total capacity, used, available, usage
+- **Storage**: Total capacity, used, available, usage
 - **GPU**: Model, memory, usage
-- **Network**: Danh sách interfaces với tên, loại, tốc độ
-- **OS**: Tên, phiên bản, kiến trúc, uptime
-- **Motherboard**: Nhà sản xuất, model
+- **Network**: List of interfaces with name, type, speed
+- **OS**: Name, version, architecture, uptime
+- **Motherboard**: Manufacturer, model
 
 ### 3. Message Processors (Classes)
-Mỗi loại message có class processor riêng:
+Each message type has its own processor class:
 
 #### `RegisterProcessor`
-- **Mục đích**: Đăng ký thiết bị mới hoặc cập nhật thiết bị đã tồn tại
-- **Dữ liệu cần thiết**: `userId` (cho thiết bị mới), `macAddress`, `ipAddress`, `machineName`, `hardware` (optional)
-- **Xử lý**: 
-  - Kiểm tra thiết bị đã tồn tại chưa
-  - Nếu chưa tồn tại: tạo mới (cần userId)
-  - Nếu đã tồn tại: cập nhật thông tin và hardware
-  - Broadcast update đến tất cả clients
+- **Purpose**: Register new device or update existing device
+- **Required data**: `userId` (for new devices), `macAddress`, `ipAddress`, `machineName`, `hardware` (optional)
+- **Processing**: 
+  - Check if device already exists
+  - If not exists: create new (requires userId)
+  - If exists: update information and hardware
+  - Broadcast update to all clients
 
 #### `ExistsProcessor`
-- **Mục đích**: Kiểm tra thiết bị có tồn tại trong database không
-- **Dữ liệu cần thiết**: `macAddress`
-- **Xử lý**: Trả về thông tin thiết bị nếu tồn tại
+- **Purpose**: Check if device exists in database
+- **Required data**: `macAddress`
+- **Processing**: Return device information if exists
 
 #### `UpdateProcessor`
-- **Mục đích**: Cập nhật thông tin thiết bị đã tồn tại
-- **Dữ liệu cần thiết**: `macAddress`, `ipAddress`, `machineName`, `hardware` (optional)
-- **Xử lý**: Cập nhật database với thông tin mới và broadcast update
+- **Purpose**: Update existing device information
+- **Required data**: `macAddress`, `ipAddress`, `machineName`, `hardware` (optional)
+- **Processing**: Update database with new information and broadcast update
 
 #### `DisconnectProcessor`
-- **Mục đích**: Xử lý ngắt kết nối thiết bị
-- **Dữ liệu cần thiết**: `macAddress`
-- **Xử lý**: Cập nhật trạng thái offline và broadcast disconnect
+- **Purpose**: Handle device disconnection
+- **Required data**: `macAddress`
+- **Processing**: Update offline status and broadcast disconnect
 
 #### `ShutdownProcessor`
-- **Mục đích**: Xử lý tắt thiết bị
-- **Dữ liệu cần thiết**: `macAddress`
-- **Xử lý**: Cập nhật trạng thái offline và broadcast shutdown
+- **Purpose**: Handle device shutdown
+- **Required data**: `macAddress`
+- **Processing**: Update offline status and broadcast shutdown
 
 ### 4. Main Validator Class
-`WebSocketMessageValidator` là class chính để:
+`WebSocketMessageValidator` is the main class to:
 - Validate message format
-- Phân loại message type
-- Gọi processor tương ứng
-- Xử lý lỗi validation
+- Classify message type
+- Call corresponding processor
+- Handle validation errors
 
-## Cách sử dụng
+## Usage
 
 ```typescript
-// Khởi tạo validator
+// Initialize validator
 const computerConnections = new Map<string, Peer>();
 const messageValidator = new WebSocketMessageValidator(computerConnections);
 
-// Xử lý message
+// Process message
 await messageValidator.validateAndProcess(messageData, peer);
 ```
 
-## Các loại message được hỗ trợ
+## Supported Message Types
 
 ### 1. Register Message
 ```json
@@ -150,7 +150,7 @@ await messageValidator.validateAndProcess(messageData, peer);
   "ipAddress": "192.168.1.101",
   "machineName": "Updated Computer Name",
   "hardware": {
-    // Hardware object tương tự như register message
+    // Hardware object similar to register message
   }
 }
 ```
@@ -174,11 +174,11 @@ await messageValidator.validateAndProcess(messageData, peer);
 ## Responses
 
 ### Success Responses
-- `{"messageType": "info", "message": "registered"}` - Thiết bị đã được đăng ký
-- `{"messageType": "info", "message": "updated"}` - Thiết bị đã được cập nhật
-- `{"messageType": "info", "message": "connected"}` - Thiết bị đã kết nối lại
-- `{"messageType": "info", "message": "disconnected"}` - Thiết bị đã ngắt kết nối
-- `{"messageType": "exists", "message": "..."}` - Thông tin tồn tại của thiết bị
+- `{"messageType": "info", "message": "registered"}` - Device has been registered
+- `{"messageType": "info", "message": "updated"}` - Device has been updated
+- `{"messageType": "info", "message": "connected"}` - Device has reconnected
+- `{"messageType": "info", "message": "disconnected"}` - Device has disconnected
+- `{"messageType": "exists", "message": "..."}` - Device existence information
 
 ### Error Responses
 - `{"messageType": "error", "message": "Invalid message format: messageType is required"}`
@@ -188,21 +188,21 @@ await messageValidator.validateAndProcess(messageData, peer);
 
 ## Hardware Information Display
 
-Giao diện web sẽ hiển thị thông tin phần cứng một cách trực quan:
-- **CPU**: Model, số cores, tốc độ và usage
-- **Memory**: Dung lượng đã sử dụng/tổng dung lượng với phần trăm
-- **Storage**: Dung lượng đã sử dụng/tổng dung lượng với phần trăm
-- **GPU**: Model và thông tin memory
-- **OS**: Hệ điều hành, phiên bản và kiến trúc
-- **Uptime**: Thời gian hoạt động được format dễ đọc (ngày, giờ, phút)
+The web interface will display hardware information visually:
+- **CPU**: Model, cores, speed and usage
+- **Memory**: Used/total capacity with percentage
+- **Storage**: Used/total capacity with percentage
+- **GPU**: Model and memory information
+- **OS**: Operating system, version and architecture
+- **Uptime**: Runtime formatted in readable format (days, hours, minutes)
 
-## Lợi ích
+## Benefits
 
-1. **Type Safety**: Sử dụng Zod để validate dữ liệu đầu vào
-2. **Hardware Monitoring**: Thu thập và hiển thị thông tin phần cứng chi tiết
-3. **Modularity**: Mỗi loại message có processor riêng
-4. **Error Handling**: Xử lý lỗi chi tiết và trả về message rõ ràng
-5. **Maintainability**: Dễ dàng thêm loại message mới
-6. **Consistency**: Cấu trúc response nhất quán
-7. **Real-time Updates**: Cập nhật thông tin phần cứng theo thời gian thực
-8. **Logging**: Log chi tiết cho debugging 
+1. **Type Safety**: Use Zod to validate input data
+2. **Hardware Monitoring**: Collect and display detailed hardware information
+3. **Modularity**: Each message type has its own processor
+4. **Error Handling**: Detailed error handling and clear message returns
+5. **Maintainability**: Easy to add new message types
+6. **Consistency**: Consistent response structure
+7. **Real-time Updates**: Update hardware information in real-time
+8. **Logging**: Detailed logging for debugging 

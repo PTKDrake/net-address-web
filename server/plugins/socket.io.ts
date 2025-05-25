@@ -6,11 +6,11 @@ import { useDrizzle } from '~~/server/utils/drizzle';
 import { devices } from '~~/db/deviceSchema';
 import { eq, and } from 'drizzle-orm';
 
-// Singleton instance of Socket.IO server
+// Singleton instance for Socket.IO server
 let ioInstance: Server | null = null;
 
-// Function to get the Socket.IO server instance
-export const getSocketIO = (): Server | null => {
+// Function to get the Socket.IO instance
+export const getSocketIOInstance = () => {
     return ioInstance;
 };
 
@@ -107,7 +107,7 @@ export const broadcastDeviceShutdown = async (macAddress: string) => {
     }
 };
 
-// Map để lưu trữ kết nối socket theo userId và macAddress
+// Map to store socket connections by userId and macAddress
 const connectedDevices = new Map<string, Map<string, string>>();
 
 export default defineNitroPlugin((nitroApp: NitroApp) => {
@@ -122,12 +122,12 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     io.on('connection', (socket) => {
         console.log('New connection', socket.id);
 
-        // Xác thực thiết bị khi kết nối
+        // Authenticate device when connecting
         socket.on('register-device', async (data: { userId: string, macAddress: string, ipAddress: string, }) => {
             try {
                 const { userId, macAddress, ipAddress } = data;
 
-                // Cập nhật thông tin thiết bị trong database
+                // Update device information in database
                 await db
                     .update(devices)
                     .set({
@@ -141,19 +141,19 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
                 // Broadcast device update to all clients
                 await broadcastDeviceUpdate(macAddress);
 
-                // Lưu mapping socket.id với userId và macAddress
+                // Save mapping of socket.id with userId and macAddress
                 if (!connectedDevices.has(userId)) {
                     connectedDevices.set(userId, new Map());
                 }
                 connectedDevices.get(userId)?.set(macAddress, socket.id);
 
-                // Join room theo userId và macAddress để dễ gửi thông báo
+                // Join room by userId and macAddress for easy notification sending
                 socket.join(`user:${userId}`);
                 socket.join(`device:${macAddress}`);
 
                 console.log(`Device registered: User ${userId}, Device ${macAddress}`);
 
-                // Trả về thông báo thành công
+                // Return success notification
                 socket.emit('register-success', { macAddress });
             } catch (error) {
                 console.error('Error registering device:', error);
@@ -161,19 +161,19 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
             }
         });
 
-        // Sự kiện nhận lệnh tắt máy từ client
+        // Event to receive shutdown command from client
         socket.on('shutdown-request', async (data: { userId: string, macAddress: string }) => {
             const { userId, macAddress } = data;
 
-            // Kiểm tra xem thiết bị có đang kết nối không
+            // Check if device is currently connected
             const userDevices = connectedDevices.get(userId);
             const targetSocketId = userDevices?.get(macAddress);
 
             if (targetSocketId) {
-                // Gửi lệnh tắt máy đến thiết bị cụ thể
+                // Send shutdown command to specific device
                 io.to(targetSocketId).emit('shutdown-command', { macAddress });
 
-                // Cập nhật trạng thái trong DB
+                // Update status in DB
                 await db
                     .update(devices)
                     .set({ isConnected: false })
@@ -205,17 +205,17 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
             }
         });
 
-        // Xử lý khi thiết bị ngắt kết nối
+        // Handle when device disconnects
         socket.on('disconnect', async () => {
             console.log('Disconnected:', socket.id);
 
-            // Tìm và xóa thiết bị khỏi map connectedDevices
+            // Find and remove device from connectedDevices map
             for (const [userId, userDevices] of connectedDevices.entries()) {
                 for (const [macAddress, socketId] of userDevices.entries()) {
                     if (socketId === socket.id) {
                         userDevices.delete(macAddress);
 
-                        // Cập nhật trạng thái trong DB
+                        // Update status in DB
                         await db
                             .update(devices)
                             .set({ isConnected: false })
@@ -235,7 +235,7 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
 
                         console.log(`Device ${macAddress} of user ${userId} disconnected`);
 
-                        // Nếu user không còn thiết bị nào, xóa user khỏi map
+                        // If user has no more devices, remove user from map
                         if (userDevices.size === 0) {
                             connectedDevices.delete(userId);
                         }
@@ -248,16 +248,16 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
 
     nitroApp.router.use("/socket.io/", defineEventHandler({
         handler(event) {
-          engine.handleRequest(event.node.req as any, event.node.res);
-          event._handled = true;
+            engine.handleRequest(event.node.req as any, event.node.res);
+            event._handled = true;
         },
         websocket: {
-          open(peer) {
-            // @ts-expect-error private method and property
-            engine.prepare(peer._internal.nodeReq);
-            // @ts-expect-error private method and property
-            engine.onWebSocket(peer._internal.nodeReq, peer._internal.nodeReq.socket, peer.websocket);
-          }
+            open(peer) {
+                // @ts-expect-error private method and property
+                engine.prepare(peer._internal.nodeReq);
+                // @ts-expect-error private method and property
+                engine.onWebSocket(peer._internal.nodeReq, peer._internal.nodeReq.socket, peer.websocket);
+            }
         }
     }));
 });

@@ -4,7 +4,7 @@
       Devices linked to your account
     </h1>
     
-    <!-- Sử dụng client component để xử lý kết nối Socket.IO -->
+    <!-- Use client component to handle Socket.IO connection -->
     <ClientOnly>
       <DeviceList />
       <template #fallback>
@@ -18,11 +18,11 @@
 
 <script lang="ts" setup>
 
-// Cài đặt tiêu đề trang
+// Set page title
 useHead({
-  title: 'Devices management',
+  title: 'Device Management',
   meta: [
-    { name: 'description', content: 'Devices management remotely' }
+    { name: 'description', content: 'Remote device management' }
   ]
 });
 </script>

@@ -19,7 +19,7 @@ const loading = ref(true);
 const error = ref('');
 const shuttingDown = ref<string[]>([]);
 
-// Lấy danh sách thiết bị từ API
+// Fetch device list from API
 const fetchDevices = async () => {
   try {
     loading.value = true;
@@ -30,7 +30,7 @@ const fetchDevices = async () => {
     const data = await response.json();
 
     if (!response.ok) {
-      const errorMessage = data.message || `Lỗi: ${response.status}`;
+      const errorMessage = data.message || `Error: ${response.status}`;
       throw new Error(errorMessage);
     }
 
@@ -59,7 +59,7 @@ const fetchDevices = async () => {
   }
 };
 
-// Xử lý tắt máy
+// Handle device shutdown
 const handleShutdown = async (macAddress: string) => {
   if (shuttingDown.value.includes(macAddress)) return;
 
@@ -104,7 +104,7 @@ const handleShutdown = async (macAddress: string) => {
     const result = await response.json();
 
     if (!response.ok) {
-      const errorMessage = result.message || `Lỗi: ${response.status}`;
+      const errorMessage = result.message || `Error: ${response.status}`;
       throw new Error(errorMessage);
     }
 
@@ -122,10 +122,10 @@ const handleShutdown = async (macAddress: string) => {
     }
   } catch (err: any) {
     console.error('Error shutting down device:', err);
-    const errorMessage = err.message || 'Đã xảy ra lỗi khi tắt thiết bị';
+    const errorMessage = err.message || 'An error occurred while shutting down the device';
 
     toast.add({
-      title: 'Lỗi',
+      title: 'Error',
       description: errorMessage,
     });
   } finally {
@@ -133,9 +133,9 @@ const handleShutdown = async (macAddress: string) => {
   }
 };
 
-// Lắng nghe các cập nhật từ server
+// Listen for updates from server
 const setupSocketListeners = () => {
-  // Xử lý cập nhật thiết bị
+  // Handle device updates
   socket.on('device-update', (updatedDevice: Device) => {
     console.log('Received device update:', updatedDevice);
 
@@ -178,7 +178,7 @@ const setupSocketListeners = () => {
     devices.value = [...devices.value];
   });
 
-  // Xử lý thiết bị ngắt kết nối
+  // Handle device disconnection
   socket.on('device-disconnect', (macAddress: string) => {
     console.log('Received device disconnect:', macAddress);
 
@@ -197,7 +197,7 @@ const setupSocketListeners = () => {
     }
   });
 
-  // Xử lý thiết bị tắt máy
+  // Handle device shutdown
   socket.on('device-shutdown', (macAddress: string) => {
     console.log('Received device shutdown:', macAddress);
 
@@ -265,10 +265,10 @@ onBeforeUnmount(() => {
   socket.off('reconnect');
 });
 
-// Format thời gian
+// Format date/time
 const formatDate = (date?: Date) => {
   if (!date) return 'N/A';
-  return new Intl.DateTimeFormat('vi-VN', {
+  return new Intl.DateTimeFormat('en-US', {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
@@ -282,7 +282,7 @@ const formatDate = (date?: Date) => {
   <div class="container mx-auto px-4 py-6 ">
     <!-- Header with refresh button and device count -->
     <div class="flex justify-between items-center mb-6">
-      <h1 class="text-2xl font-bold">Device management</h1>
+      <h1 class="text-2xl font-bold">Device Management</h1>
       <div class="flex items-center gap-2">
         <span v-if="!loading && devices.length > 0" class="text-sm">
           {{ devices.length }} devices
@@ -294,7 +294,7 @@ const formatDate = (date?: Date) => {
           @click="fetchDevices"
           class="rounded-full h-10 w-10 p-0 flex items-center justify-center"
           :class="{'animate-spin': loading}"
-          title="Làm mới"
+          title="Refresh"
         />
       </div>
     </div>
@@ -303,7 +303,7 @@ const formatDate = (date?: Date) => {
     <UAlert
       v-if="error"
       variant="destructive"
-      title="Lỗi"
+      title="Error"
       :description="error"
       class="mb-6"
       icon="i-heroicons-exclamation-triangle"
@@ -327,7 +327,7 @@ const formatDate = (date?: Date) => {
         icon="i-heroicons-arrow-path"
         @click="fetchDevices"
       >
-        Làm mới
+        Refresh
       </UButton>
     </div>
 
@@ -392,7 +392,7 @@ const formatDate = (date?: Date) => {
         <div class="p-4 card border-t">
           <UButton
             icon="i-heroicons-power"
-            :color="device.isConnected ? 'red' : 'gray'"
+            :color="device.isConnected ? 'error' : 'neutral'"
             variant="outline"
             class="w-full"
             :loading="shuttingDown.includes(device.macAddress)"

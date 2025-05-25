@@ -1,0 +1,11 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Use NuxtJS 4 structure. For import paths, use @@ or ~~ for the root directory, and @ or ~ for the src directory.
+
+Prefer using components from @nuxt/ui and Tailwind CSS classes for the front-end. Define global styles in app/assets/styles.css.
+
+
+Use pnpm package manager.

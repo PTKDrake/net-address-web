@@ -1,54 +1,47 @@
 <script setup lang="ts">
-import { signOut } from "~~/lib/auth-client";
+import { authClient } from '~~/lib/auth-client';
 
-definePageMeta({
-  layout: 'auth'
-})
-
-useSeoMeta({
-  title: 'Signing out...',
-  description: 'Please wait while we sign you out'
-})
-
-const toast = useToast()
+const toast = useToast();
 
 onMounted(async () => {
-  const result = await signOut({
-    fetchOptions: {
-      onError: (context) => {
-        navigateTo('/login')
-        toast.add({
-          title: 'Lỗi đăng xuất',
-          description: 'Đã xảy ra lỗi khi đăng xuất',
-          variant: 'destructive'
-        });
-      },
-      onSuccess: () => {
-        navigateTo('/login');
-        toast.add({
-          title: 'Đã đăng xuất',
-          description: 'Bạn đã đăng xuất thành công',
-          variant: 'success'
-        });
+  try {
+    await authClient.signOut({
+      fetchOptions: {
+        onSuccess: () => {
+          navigateTo('/auth/signin');
+        },
+        onError: (ctx) => {
+          console.error('Sign out error:', ctx.error);
+          toast.add({
+            title: 'Sign out error',
+            description: 'An error occurred while signing out',
+            color: 'error'
+          });
+        }
       }
-    }
-  });
+    });
 
-  // Đảm bảo thông báo hiển thị trước
-
-})
+    toast.add({
+      title: 'Signed out',
+      description: 'You have been signed out successfully',
+      color: 'success'
+    });
+  } catch (error) {
+    console.error('Sign out error:', error);
+    toast.add({
+      title: 'Sign out error',
+      description: 'An error occurred while signing out',
+      color: 'error'
+    });
+  }
+});
 </script>
 
 <template>
-  <div class="w-full max-w-md mx-auto space-y-6">
-    <div class="flex flex-col text-center">
-      <div class="mb-4 flex justify-center">
-        <Icon name="i-lucide-log-out" class="size-12 text-primary animate-spin" />
-      </div>
-      <h1 class="text-2xl font-semibold text-highlighted">Signing out...</h1>
-      <p class="mt-2 text-base text-muted">
-        Please wait while we sign you out of your account.
-      </p>
+  <div class="flex items-center justify-center min-h-screen">
+    <div class="text-center">
+      <h1 class="text-2xl font-bold mb-4">Signing out...</h1>
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
     </div>
   </div>
 </template>

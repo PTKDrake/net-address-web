@@ -37,16 +37,16 @@ const items = ref<DropdownMenuItem[]>([
 
 <template>
   <div>
-    <!-- Chưa đăng nhập -->
+    <!-- User not logged in -->
     <UButton
       v-if="!isLoggedIn"
-      color="gray"
+      color="neutral"
       variant="ghost"
       icon="i-material-symbols-light:person"
       to="/login"
     />
 
-    <!-- Đã đăng nhập -->
+    <!-- User is logged in -->
     <UDropdownMenu
       v-else
       size="xl"
@@ -63,18 +63,18 @@ const items = ref<DropdownMenuItem[]>([
       :modal="false"
     >
       <UButton
-        color="gray"
+        color="neutral"
         variant="ghost"
         class="relative"
       >
-        <!-- Avatar từ Google -->
+        <!-- Avatar from Google -->
         <img
           v-if="userAvatar"
           :src="userAvatar"
           :alt="loggedIn?.user?.name"
           class="size-8 rounded-full"
         >
-        <!-- Avatar chữ cái đầu -->
+        <!-- Initial letter avatar -->
         <div
           v-else
           class="size-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-medium"
