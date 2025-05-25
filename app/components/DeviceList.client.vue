@@ -2,6 +2,7 @@
 import {socket, sendShutdownCommand} from './socket';
 import {onBeforeUnmount, onMounted, ref, watch} from 'vue';
 import {getSession} from '~~/lib/auth-client';
+import type { HardwareInfo } from '~~/db/deviceSchema';
 
 interface Device {
   id: string;
@@ -10,6 +11,7 @@ interface Device {
   macAddress: string;
   isConnected: boolean;
   lastSeen: Date;
+  hardware?: HardwareInfo;
 }
 
 const devices = ref<Device[]>([]);
@@ -330,7 +332,7 @@ const formatDate = (date?: Date) => {
     </div>
 
     <!-- Device grid -->
-    <div v-if="!loading && devices && devices.length > 0" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div v-if="!loading && devices && devices.length > 0" class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
       <div
         v-for="device in devices"
         :key="device.macAddress"
@@ -354,37 +356,44 @@ const formatDate = (date?: Date) => {
         </div>
 
         <!-- Card body with device details -->
-        <div class="p-6 space-y-3 card">
-          <div class="flex items-center">
-            <UIcon name="i-heroicons-globe-alt" class="h-5 w-5 mr-3" />
-            <div>
-              <div class="text-sm">IP Address</div>
-              <div class="font-medium">{{ device.ipAddress }}</div>
+        <div class="p-6 space-y-4 card">
+          <!-- Basic Info -->
+          <div class="space-y-3">
+            <div class="flex items-center">
+              <UIcon name="i-heroicons-globe-alt" class="h-5 w-5 mr-3 text-blue-500" />
+              <div>
+                <div class="text-sm text-gray-500">IP Address</div>
+                <div class="font-medium">{{ device.ipAddress }}</div>
+              </div>
+            </div>
+
+            <div class="flex items-center">
+              <UIcon name="i-heroicons-cpu-chip" class="h-5 w-5 mr-3 text-purple-500" />
+              <div>
+                <div class="text-sm text-gray-500">MAC Address</div>
+                <div class="font-medium font-mono text-sm">{{ device.macAddress }}</div>
+              </div>
+            </div>
+
+            <div class="flex items-center">
+              <UIcon name="i-heroicons-clock" class="h-5 w-5 mr-3 text-gray-500" />
+              <div>
+                <div class="text-sm text-gray-500">Last Seen</div>
+                <div class="font-medium">{{ formatDate(device.lastSeen) }}</div>
+              </div>
             </div>
           </div>
 
-          <div class="flex items-center">
-            <UIcon name="i-heroicons-cpu-chip" class="h-5 w-5 mr-3" />
-            <div>
-              <div class="text-sm">MAC Address</div>
-              <div class="font-medium">{{ device.macAddress }}</div>
-            </div>
-          </div>
-
-          <div class="flex items-center">
-            <UIcon name="i-heroicons-clock" class="h-5 w-5  mr-3" />
-            <div>
-              <div class="text-sm ">Last Seen</div>
-              <div class="font-medium">{{ formatDate(device.lastSeen) }}</div>
-            </div>
-          </div>
+          <!-- Hardware Info -->
+          <HardwareInfo :hardware="device.hardware" />
         </div>
 
         <!-- Card footer with action button -->
-        <div class="p-4 card">
+        <div class="p-4 card border-t">
           <UButton
             icon="i-heroicons-power"
-            :color="device.isConnected ? 'success' : 'error'"
+            :color="device.isConnected ? 'red' : 'gray'"
+            variant="outline"
             class="w-full"
             :loading="shuttingDown.includes(device.macAddress)"
             :disabled="!device.isConnected || shuttingDown.includes(device.macAddress)"
