@@ -4,260 +4,383 @@ import { Server } from 'socket.io';
 import { defineEventHandler } from "h3";
 import { useDrizzle } from '~~/server/utils/drizzle';
 import { devices } from '~~/db/deviceSchema';
+import { user } from '~~/db/authSchema';
 import { eq, and } from 'drizzle-orm';
+import { sendShutdownCommand as sendWebSocketShutdownCommand } from '~~/server/api/websocket';
 
-// Singleton instance for Socket.IO server
+// Singleton Socket.IO instance
 let ioInstance: Server | null = null;
 
-// Function to get the Socket.IO instance
-export const getSocketIOInstance = () => {
-    return ioInstance;
+// Get Socket.IO instance
+export const getSocketIOInstance = () => ioInstance;
+
+// Bridge to sync WebSocket connections with Socket.IO
+export const syncWebSocketConnection = (macAddress: string, isConnected: boolean, eventType: 'disconnect' | 'shutdown' = 'disconnect') => {
+  console.log(`🔄 Syncing WebSocket: ${macAddress} - ${isConnected ? 'connected' : eventType}`);
+  
+  if (!ioInstance) {
+    console.warn('⚠️ Socket.IO not available for sync');
+    return;
+  }
+
+  if (isConnected) {
+    console.log(`📤 Scheduling device update broadcast for: ${macAddress}`);
+    setImmediate(() => broadcastDeviceUpdate(macAddress));
+  } else {
+    if (eventType === 'shutdown') {
+      console.log(`📤 Scheduling shutdown broadcast for: ${macAddress}`);
+      setImmediate(() => broadcastDeviceShutdown(macAddress));
+    } else {
+      console.log(`📤 Scheduling disconnect broadcast for: ${macAddress}`);
+      setImmediate(() => broadcastDeviceDisconnect(macAddress));
+    }
+  }
 };
 
-// Function to broadcast device updates to all connected clients
+// Get active WebSocket devices
+export const getWebSocketDevices = async (): Promise<string[]> => {
+  try {
+    const { getComputerConnections } = await import('~~/server/api/websocket');
+    return Array.from(getComputerConnections().keys());
+  } catch (error) {
+    console.error('❌ Error getting WebSocket devices:', error);
+    return [];
+  }
+};
+
+// Broadcast device update to all clients
 export const broadcastDeviceUpdate = async (macAddress: string) => {
-    if (!ioInstance) {
-        console.warn('Socket.IO instance not available for broadcasting device update');
-        return;
+  if (!ioInstance) {
+    console.warn('⚠️ Socket.IO not available for broadcast');
+    return;
+  }
+
+  try {
+    console.log(`📡 Broadcasting update for: ${macAddress}`);
+
+    const device = await useDrizzle()
+      .select()
+      .from(devices)
+      .where(eq(devices.macAddress, macAddress))
+      .then(results => results[0]);
+
+    if (device) {
+      const formattedDevice = {
+        ...device,
+        lastSeen: device.lastSeen ? device.lastSeen.toISOString() : null
+      };
+
+      ioInstance.emit('device-update', formattedDevice);
+      console.log(`✅ Broadcast complete: ${device.name}`);
+    } else {
+      console.warn(`❌ Device not found: ${macAddress}`);
     }
-
-    try {
-        console.log(`Broadcasting update for device with MAC: ${macAddress}`);
-
-        // Get the updated device from the database
-        const device = await useDrizzle()
-            .select()
-            .from(devices)
-            .where(eq(devices.macAddress, macAddress))
-            .then(results => results[0]);
-
-        if (device) {
-            console.log('Device found, broadcasting update:', device);
-
-            // Format dates for proper serialization
-            const formattedDevice = {
-                ...device,
-                lastSeen: device.lastSeen ? device.lastSeen.toISOString() : null
-            };
-
-            // Broadcast the updated device to all connected clients
-            ioInstance.emit('device-update', formattedDevice);
-            console.log('Broadcast complete');
-        } else {
-            console.warn(`No device found with MAC: ${macAddress}`);
-        }
-    } catch (error) {
-        console.error('Error broadcasting device update:', error);
-    }
+  } catch (error) {
+    console.error('❌ Error broadcasting update:', error);
+  }
 };
 
-// Function to broadcast device disconnection to all connected clients
+// Broadcast device disconnection to all clients
 export const broadcastDeviceDisconnect = async (macAddress: string) => {
-    if (!ioInstance) {
-        console.warn('Socket.IO instance not available for broadcasting device disconnect');
-        return;
-    }
+  if (!ioInstance) {
+    console.warn('⚠️ Socket.IO not available for broadcast');
+    return;
+  }
 
-    try {
-        console.log(`Broadcasting disconnect for device with MAC: ${macAddress}`);
-
-        // Get device name for logging
-        const device = await useDrizzle()
-            .select({ name: devices.name })
-            .from(devices)
-            .where(eq(devices.macAddress, macAddress))
-            .then(results => results[0]);
-
-        // Broadcast the device disconnection to all connected clients
-        ioInstance.emit('device-disconnect', macAddress);
-
-        console.log(`Broadcast disconnect complete for device: ${device?.name || 'unknown'} (${macAddress})`);
-    } catch (error) {
-        console.error('Error broadcasting device disconnect:', error);
-        // Still try to broadcast even if we couldn't get the device name
-        ioInstance.emit('device-disconnect', macAddress);
-    }
+  try {
+    console.log(`📡 Broadcasting disconnect: ${macAddress}`);
+    ioInstance.emit('device-disconnect', macAddress);
+    console.log(`✅ Disconnect broadcast complete`);
+  } catch (error) {
+    console.error('❌ Error broadcasting disconnect:', error);
+    ioInstance.emit('device-disconnect', macAddress);
+  }
 };
 
-// Function to broadcast device shutdown to all connected clients
+// Broadcast device shutdown to all clients
 export const broadcastDeviceShutdown = async (macAddress: string) => {
-    if (!ioInstance) {
-        console.warn('Socket.IO instance not available for broadcasting device shutdown');
-        return;
-    }
+  if (!ioInstance) {
+    console.warn('⚠️ Socket.IO not available for broadcast');
+    return;
+  }
 
-    try {
-        console.log(`Broadcasting shutdown for device with MAC: ${macAddress}`);
-
-        // Get device name for logging
-        const device = await useDrizzle()
-            .select({ name: devices.name })
-            .from(devices)
-            .where(eq(devices.macAddress, macAddress))
-            .then(results => results[0]);
-
-        // Broadcast the device shutdown to all connected clients
-        ioInstance.emit('device-shutdown', macAddress);
-
-        console.log(`Broadcast shutdown complete for device: ${device?.name || 'unknown'} (${macAddress})`);
-    } catch (error) {
-        console.error('Error broadcasting device shutdown:', error);
-        // Still try to broadcast even if we couldn't get the device name
-        ioInstance.emit('device-shutdown', macAddress);
-    }
+  try {
+    console.log(`📡 Broadcasting shutdown: ${macAddress}`);
+    ioInstance.emit('device-shutdown', macAddress);
+    console.log(`✅ Shutdown broadcast complete`);
+  } catch (error) {
+    console.error('❌ Error broadcasting shutdown:', error);
+    ioInstance.emit('device-shutdown', macAddress);
+  }
 };
 
 // Map to store socket connections by userId and macAddress
 const connectedDevices = new Map<string, Map<string, string>>();
 
 export default defineNitroPlugin((nitroApp: NitroApp) => {
-    const engine = new Engine();
-    const io = new Server();
-    // Set the singleton instance
-    ioInstance = io;
-    const db = useDrizzle();
+  const engine = new Engine();
+  const io = new Server({
+    pingTimeout: 10000,
+    pingInterval: 5000,
+    upgradeTimeout: 5000,
+    allowUpgrades: true,
+    transports: ['websocket', 'polling'],
+    allowEIO3: true
+  });
+  
+  ioInstance = io;
+  const db = useDrizzle();
 
-    io.bind(engine);
+  io.bind(engine);
 
-    io.on('connection', (socket) => {
-        console.log('New connection', socket.id);
+  io.on('connection', (socket) => {
+    console.log('🔌 New Socket.IO client:', socket.id);
 
-        // Authenticate device when connecting
-        socket.on('register-device', async (data: { userId: string, macAddress: string, ipAddress: string, }) => {
-            try {
-                const { userId, macAddress, ipAddress } = data;
-
-                // Update device information in database
-                await db
-                    .update(devices)
-                    .set({
-                        ipAddress,
-                        macAddress,
-                        lastSeen: new Date(),
-                        isConnected: true
-                    })
-                    .where(and(eq(devices.macAddress, macAddress), eq(devices.userId, userId)));
-
-                // Broadcast device update to all clients
-                await broadcastDeviceUpdate(macAddress);
-
-                // Save mapping of socket.id with userId and macAddress
-                if (!connectedDevices.has(userId)) {
-                    connectedDevices.set(userId, new Map());
-                }
-                connectedDevices.get(userId)?.set(macAddress, socket.id);
-
-                // Join room by userId and macAddress for easy notification sending
-                socket.join(`user:${userId}`);
-                socket.join(`device:${macAddress}`);
-
-                console.log(`Device registered: User ${userId}, Device ${macAddress}`);
-
-                // Return success notification
-                socket.emit('register-success', { macAddress });
-            } catch (error) {
-                console.error('Error registering device:', error);
-                socket.emit('register-error', { message: 'Cannot register device' });
-            }
-        });
-
-        // Event to receive shutdown command from client
-        socket.on('shutdown-request', async (data: { userId: string, macAddress: string }) => {
-            const { userId, macAddress } = data;
-
-            // Check if device is currently connected
-            const userDevices = connectedDevices.get(userId);
-            const targetSocketId = userDevices?.get(macAddress);
-
-            if (targetSocketId) {
-                // Send shutdown command to specific device
-                io.to(targetSocketId).emit('shutdown-command', { macAddress });
-
-                // Update status in DB
-                await db
-                    .update(devices)
-                    .set({ isConnected: false })
-                    .where(and(eq(devices.macAddress, macAddress), eq(devices.userId, userId)));
-
-                // Get the device to find its macAddress
-                const device = await db
-                    .select()
-                    .from(devices)
-                    .where(and(eq(devices.macAddress, macAddress), eq(devices.userId, userId)))
-                    .then(results => results[0]);
-
-                if (device) {
-                    // Broadcast device shutdown to all clients
-                    broadcastDeviceShutdown(device.macAddress);
-                }
-
-                socket.emit('shutdown-response', { 
-                    success: true, 
-                    macAddress,
-                    message: 'Shutdown command sent successfully' 
-                });
-            } else {
-                socket.emit('shutdown-response', { 
-                    success: false, 
-                    macAddress,
-                    message: 'Device is not connected' 
-                });
-            }
-        });
-
-        // Handle when device disconnects
-        socket.on('disconnect', async () => {
-            console.log('Disconnected:', socket.id);
-
-            // Find and remove device from connectedDevices map
-            for (const [userId, userDevices] of connectedDevices.entries()) {
-                for (const [macAddress, socketId] of userDevices.entries()) {
-                    if (socketId === socket.id) {
-                        userDevices.delete(macAddress);
-
-                        // Update status in DB
-                        await db
-                            .update(devices)
-                            .set({ isConnected: false })
-                            .where(and(eq(devices.macAddress, macAddress), eq(devices.userId, userId)));
-
-                        // Get the device to find its macAddress
-                        const device = await db
-                            .select()
-                            .from(devices)
-                            .where(and(eq(devices.macAddress, macAddress), eq(devices.userId, userId)))
-                            .then(results => results[0]);
-
-                        if (device) {
-                            // Broadcast device disconnection to all clients
-                            broadcastDeviceDisconnect(device.macAddress);
-                        }
-
-                        console.log(`Device ${macAddress} of user ${userId} disconnected`);
-
-                        // If user has no more devices, remove user from map
-                        if (userDevices.size === 0) {
-                            connectedDevices.delete(userId);
-                        }
-                        break;
-                    }
-                }
-            }
-        });
+    // Test handler for debugging
+    socket.on('test-from-client', (data) => {
+      console.log('🧪 [SERVER] Received test from client:', socket.id, data);
+      socket.emit('test-response', { message: 'Hello back from server!', socketId: socket.id });
     });
 
-    nitroApp.router.use("/socket.io/", defineEventHandler({
-        handler(event) {
-            engine.handleRequest(event.node.req as any, event.node.res);
-            event._handled = true;
-        },
-        websocket: {
-            open(peer) {
-                // @ts-expect-error private method and property
-                engine.prepare(peer._internal.nodeReq);
-                // @ts-expect-error private method and property
-                engine.onWebSocket(peer._internal.nodeReq, peer._internal.nodeReq.socket, peer.websocket);
-            }
+    // Get devices list for user
+    socket.on('get-devices', async (data: { userId: string; isAdmin?: boolean; requestId?: string }) => {
+      try {
+        const { userId, isAdmin = false, requestId } = data;
+        
+        if (!userId) {
+          const errorEvent = requestId ? `devices-error-${requestId}` : 'devices-error';
+          socket.emit(errorEvent, { message: 'User ID is required' });
+          return;
         }
-    }));
+
+        console.log(`📋 Getting devices for user: ${userId} (Admin: ${isAdmin})${requestId ? ` - Request ID: ${requestId}` : ''}`);
+
+        let query;
+        if (isAdmin) {
+          // Admin can see all devices with user information
+          query = db
+            .select({
+              macAddress: devices.macAddress,
+              name: devices.name,
+              ipAddress: devices.ipAddress,
+              isConnected: devices.isConnected,
+              lastSeen: devices.lastSeen,
+              hardware: devices.hardware,
+              userId: devices.userId,
+              userName: user.name,
+              userEmail: user.email,
+              createdAt: devices.createdAt,
+              updatedAt: devices.updatedAt
+            })
+            .from(devices)
+            .leftJoin(user, eq(devices.userId, user.id));
+        } else {
+          // Regular users only see their own devices
+          query = db
+            .select()
+            .from(devices)
+            .where(eq(devices.userId, userId));
+        }
+
+        const deviceResults = await query;
+
+        const formattedDevices = deviceResults.map(device => ({
+          ...device,
+          lastSeen: device.lastSeen ? device.lastSeen.toISOString() : null
+        }));
+
+        console.log(`✅ Found ${formattedDevices.length} devices${isAdmin ? ' (admin view)' : ` for user ${userId}`}${requestId ? ` - Request ID: ${requestId}` : ''}`);
+        
+        // Use unique event name if requestId provided, otherwise use default
+        const responseEvent = requestId ? `devices-list-${requestId}` : 'devices-list';
+        console.log(`📡 Sending response via event: ${responseEvent}`);
+        socket.emit(responseEvent, formattedDevices);
+              } catch (error) {
+          console.error('❌ Error getting devices:', error);
+          const errorEvent = data.requestId ? `devices-error-${data.requestId}` : 'devices-error';
+          socket.emit(errorEvent, { message: 'Failed to get devices' });
+        }
+    });
+
+    // Register device when connecting
+    socket.on('register-device', async (data: { userId: string, macAddress: string, ipAddress: string }) => {
+      try {
+        const { userId, macAddress, ipAddress } = data;
+
+        await db
+          .update(devices)
+          .set({
+            ipAddress,
+            macAddress,
+            lastSeen: new Date(),
+            isConnected: true
+          })
+          .where(and(eq(devices.macAddress, macAddress), eq(devices.userId, userId)));
+
+        setImmediate(() => broadcastDeviceUpdate(macAddress));
+
+        if (!connectedDevices.has(userId)) {
+          connectedDevices.set(userId, new Map());
+        }
+        connectedDevices.get(userId)?.set(macAddress, socket.id);
+
+        socket.join(`user:${userId}`);
+        socket.join(`device:${macAddress}`);
+
+        console.log(`✅ Device registered: User ${userId}, Device ${macAddress}`);
+        socket.emit('register-success', { macAddress });
+      } catch (error) {
+        console.error('❌ Error registering device:', error);
+        socket.emit('register-error', { message: 'Cannot register device' });
+      }
+    });
+
+    // Handle shutdown request
+    socket.on('shutdown-request', async (data: { userId: string, macAddress: string, isAdmin?: boolean }) => {
+      const { userId, macAddress, isAdmin = false } = data;
+
+      try {
+        console.log(`🔌 Processing shutdown: ${macAddress} from user: ${userId} (Admin: ${isAdmin})`);
+
+        // Check if device exists and belongs to user (or admin can shutdown any device)
+        let deviceQuery;
+        if (isAdmin) {
+          deviceQuery = db
+            .select()
+            .from(devices)
+            .where(eq(devices.macAddress, macAddress));
+        } else {
+          deviceQuery = db
+            .select()
+            .from(devices)
+            .where(and(eq(devices.macAddress, macAddress), eq(devices.userId, userId)));
+        }
+
+        const device = await deviceQuery.then(results => results[0]);
+
+        if (!device) {
+          console.log(`❌ Device ${macAddress} not found${isAdmin ? '' : ` for user ${userId}`}`);
+          socket.emit('shutdown-response', { 
+            success: false, 
+            macAddress,
+            message: isAdmin ? 'Device not found' : 'Device not found or does not belong to user' 
+          });
+          return;
+        }
+
+        if (!device.isConnected) {
+          console.log(`❌ Device ${macAddress} is not connected`);
+          socket.emit('shutdown-response', { 
+            success: false, 
+            macAddress,
+            message: 'Device is not currently connected' 
+          });
+          return;
+        }
+
+        // Try Socket.IO first, then WebSocket
+        const userDevices = connectedDevices.get(userId);
+        const targetSocketId = userDevices?.get(macAddress);
+        let commandSent = false;
+
+        console.log(`🔍 Checking connection methods for device: ${macAddress}`);
+        console.log(`📊 Socket.IO connections for user ${userId}:`, userDevices ? Array.from(userDevices.keys()) : 'No connections');
+
+        if (targetSocketId) {
+          console.log(`📡 Sending shutdown via Socket.IO to socket: ${targetSocketId}`);
+          io.to(targetSocketId).emit('shutdown-command', { macAddress });
+          commandSent = true;
+        } else {
+          console.log(`📡 No Socket.IO connection, trying WebSocket for: ${macAddress}`);
+          commandSent = sendWebSocketShutdownCommand(macAddress);
+          
+          if (!commandSent) {
+            console.log(`📡 WebSocket failed, fallback to Socket.IO broadcast to device room: ${macAddress}`);
+            io.to(`device:${macAddress}`).emit('shutdown-command', { macAddress });
+            commandSent = true;
+          } else {
+            console.log(`✅ WebSocket shutdown command sent for: ${macAddress}`);
+          }
+        }
+
+        console.log(`📋 Shutdown command result for ${macAddress}: ${commandSent ? 'SUCCESS' : 'FAILED'}`);
+
+        // Update database
+        setImmediate(async () => {
+          try {
+            await db
+              .update(devices)
+              .set({ isConnected: false })
+              .where(and(eq(devices.macAddress, macAddress), eq(devices.userId, userId)));
+
+            broadcastDeviceShutdown(macAddress);
+          } catch (error) {
+            console.error('❌ Error updating device status:', error);
+          }
+        });
+
+        console.log(`✅ Shutdown command sent: ${macAddress}`);
+        socket.emit('shutdown-response', { 
+          success: true, 
+          macAddress,
+          message: 'Shutdown command sent successfully' 
+        });
+
+      } catch (error) {
+        console.error('❌ Error processing shutdown:', error);
+        socket.emit('shutdown-response', { 
+          success: false, 
+          macAddress,
+          message: 'Server error processing shutdown request' 
+        });
+      }
+    });
+
+    // Handle client disconnect
+    socket.on('disconnect', async () => {
+      console.log('❌ Socket.IO client disconnected:', socket.id);
+
+      setImmediate(async () => {
+        try {
+          for (const [userId, userDevices] of connectedDevices.entries()) {
+            for (const [macAddress, socketId] of userDevices.entries()) {
+              if (socketId === socket.id) {
+                userDevices.delete(macAddress);
+
+                await db
+                  .update(devices)
+                  .set({ isConnected: false })
+                  .where(and(eq(devices.macAddress, macAddress), eq(devices.userId, userId)));
+
+                broadcastDeviceDisconnect(macAddress);
+                console.log(`🧹 Device ${macAddress} cleanup complete`);
+
+                if (userDevices.size === 0) {
+                  connectedDevices.delete(userId);
+                }
+                break;
+              }
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error handling disconnect:', error);
+        }
+      });
+    });
+  });
+
+  nitroApp.router.use("/socket.io/", defineEventHandler({
+    handler(event) {
+      engine.handleRequest(event.node.req as any, event.node.res);
+      event._handled = true;
+    },
+    websocket: {
+      open(peer) {
+        // @ts-expect-error private method and property
+        engine.prepare(peer._internal.nodeReq);
+        // @ts-expect-error private method and property
+        engine.onWebSocket(peer._internal.nodeReq, peer._internal.nodeReq.socket, peer.websocket);
+      }
+    }
+  }));
 });

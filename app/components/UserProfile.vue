@@ -16,23 +16,52 @@ const userAvatar = computed(() => {
 
 const isLoggedIn = computed(() => !!loggedIn.value)
 
-const items = ref<DropdownMenuItem[]>([
-  {
-    label: 'Profile',
-    icon: 'i-lucide-user',
-    to: '/profile'
-  },
-  {
-    label: 'Settings',
-    icon: 'i-lucide-settings',
-    to: '/settings'
-  },
-  {
+// Check if user is admin
+const isAdmin = ref(false)
+
+// Check admin role
+onMounted(async () => {
+  try {
+    if (loggedIn.value?.user?.role) {
+      const userRole = loggedIn.value.user.role;
+      isAdmin.value = userRole === 'admin' || (Array.isArray(userRole) && userRole.includes('admin'));
+    }
+  } catch (error) {
+    console.error('Error checking admin role:', error);
+  }
+})
+
+const items = computed<DropdownMenuItem[]>(() => {
+  const baseItems = [
+    {
+      label: 'Profile',
+      icon: 'i-lucide-user',
+      to: '/profile'
+    },
+    {
+      label: 'Settings',
+      icon: 'i-lucide-settings',
+      to: '/settings'
+    }
+  ];
+
+  // Add admin dashboard if user is admin
+  if (isAdmin.value) {
+    baseItems.splice(1, 0, {
+      label: 'Admin Dashboard',
+      icon: 'i-heroicons-shield-check',
+      to: '/admin/devices'
+    });
+  }
+
+  baseItems.push({
     label: 'Sign out',
     icon: 'i-lucide-log-out',
     to: '/signout'
-  }
-])
+  });
+
+  return baseItems;
+})
 </script>
 
 <template>

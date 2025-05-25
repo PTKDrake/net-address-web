@@ -46,6 +46,15 @@
               <UIcon name="i-heroicons-computer-desktop" class="h-5 w-5" />
               <span>Device Management</span>
             </NuxtLink>
+            <!-- Admin Menu (only visible to admins) -->
+            <NuxtLink 
+              v-if="isAdmin" 
+              to="/admin/devices" 
+              class="flex items-center gap-2 p-2 hover:bg-purple-100 dark:hover:bg-purple-900/30 rounded-lg transition-colors border border-purple-200 dark:border-purple-800"
+            >
+              <UIcon name="i-heroicons-shield-check" class="h-5 w-5 text-purple-600" />
+              <span class="text-purple-700 dark:text-purple-300 font-medium">Admin Dashboard</span>
+            </NuxtLink>
           </div>
         </div>
 
@@ -57,6 +66,15 @@
               <UIcon name="i-heroicons-information-circle" class="h-5 w-5" />
               <span>About Us</span>
             </NuxtLink>
+            <!-- Debug Tools (only visible to admins) -->
+            <NuxtLink 
+              v-if="isAdmin" 
+              to="/debug/socket" 
+              class="flex items-center gap-2 p-2 hover:bg-orange-100 dark:hover:bg-orange-900/30 rounded-lg transition-colors border border-orange-200 dark:border-orange-800"
+            >
+              <UIcon name="i-heroicons-bug-ant" class="h-5 w-5 text-orange-600" />
+              <span class="text-orange-700 dark:text-orange-300 font-medium">Socket Debug</span>
+            </NuxtLink>
           </div>
         </div>
       </div>
@@ -65,6 +83,8 @@
 </template>
 
 <script setup>
+import { getSession } from '~~/lib/auth-client';
+
 const { width } = useWindowSize()
 const isMobile = computed(() => width.value < 768)
 const isMenuOpen = ref(false)
@@ -72,6 +92,7 @@ const isUserOpen = ref(false)
 const isScrolled = ref(false)
 const isHidden = ref(false)
 const lastScrollY = ref(0)
+const isAdmin = ref(false)
 
 const toggleMenu = () => {
   isMenuOpen.value = !isMenuOpen.value;
@@ -81,7 +102,7 @@ const toggleMenu = () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('scroll', handleScroll)
 
   // Close menu when clicking outside
@@ -90,6 +111,16 @@ onMounted(() => {
       isMenuOpen.value = false
     }
   })
+
+  // Check admin role
+  try {
+    const session = await getSession();
+    const userRole = session.data?.user?.role;
+    isAdmin.value = userRole === 'admin' || (Array.isArray(userRole) && userRole.includes('admin'));
+  } catch (error) {
+    console.error('Error checking admin role in navbar:', error);
+    isAdmin.value = false;
+  }
 })
 
 onUnmounted(() => {

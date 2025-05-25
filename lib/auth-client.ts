@@ -1,8 +1,8 @@
-import { inferAdditionalFields, apiKeyClient } from "better-auth/client/plugins";
+import { inferAdditionalFields, apiKeyClient, adminClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/vue";
 import type { auth } from "./auth"
 export const authClient = createAuthClient({
-	plugins: [inferAdditionalFields<typeof auth>(), apiKeyClient()],
+	plugins: [inferAdditionalFields<typeof auth>(), apiKeyClient(), adminClient()],
 	baseURL: process.env.BETTER_AUTH_URL,
 });
 

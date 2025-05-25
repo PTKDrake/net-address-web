@@ -5,11 +5,13 @@ export default defineEventHandler(async (event) => {
     const url = getRequestURL(event);
     const newUrl = new URL("netaddress://oauth/google/");
     newUrl.searchParams.set("state", query.state as string);
+    
     const OauthClient = new OAuth2Client({
         clientId: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
         redirectUri: url.origin + url.pathname,
     } as any);
+    
     try{
         const {tokens} = await OauthClient.getToken(query.code as string);
         newUrl.searchParams.set("access_token", tokens.access_token!);
@@ -21,5 +23,10 @@ export default defineEventHandler(async (event) => {
     }catch (e) {
         newUrl.searchParams.set("error", "Error when get tokens." );
     }
-    await sendRedirect(event, newUrl.href);
+
+    // Redirect to the intermediate page with the target URL as parameter
+    const redirectPageUrl = new URL('/oauth/redirect', url.origin);
+    redirectPageUrl.searchParams.set('url', newUrl.href);
+    
+    await sendRedirect(event, redirectPageUrl.href);
 });

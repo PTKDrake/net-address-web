@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import {socket, sendShutdownCommand} from './socket';
-import {onBeforeUnmount, onMounted, ref, watch} from 'vue';
-import {getSession} from '~~/lib/auth-client';
+import {sendShutdownCommand, getDevicesViaSocket, setupDeviceListeners, cleanupDeviceListeners, isSocketConnected, getSocketDebugInfo} from './socket';
+import {onBeforeUnmount, onMounted, ref, watch, nextTick} from 'vue';
+import {getSession, authClient} from '~~/lib/auth-client';
 import type { HardwareInfo } from '~~/db/deviceSchema';
 
 interface Device {
@@ -10,61 +10,273 @@ interface Device {
   ipAddress: string;
   macAddress: string;
   isConnected: boolean;
-  lastSeen: Date;
+  lastSeen: Date | null;
   hardware?: HardwareInfo;
+  userId?: string;
+  userName?: string;
+  userEmail?: string;
 }
 
 const devices = ref<Device[]>([]);
 const loading = ref(true);
 const error = ref('');
 const shuttingDown = ref<string[]>([]);
+const isAdmin = ref(false);
+const currentUser = ref<any>(null);
+const selectedUserFilter = ref('all');
 
-// Fetch device list from API
-const fetchDevices = async () => {
+// Cache for faster lookups
+const deviceMap = ref(new Map<string, number>());
+
+// Update device map for faster lookups
+const updateDeviceMap = () => {
+  deviceMap.value.clear();
+  devices.value.forEach((device, index) => {
+    deviceMap.value.set(device.macAddress, index);
+  });
+};
+
+// Check if current user is admin
+const checkAdminRole = async () => {
   try {
-    loading.value = true;
-    error.value = '';
-
-    console.log('Fetching devices from API...');
-    const response = await fetch('/api/devices');
-    const data = await response.json();
-
-    if (!response.ok) {
-      const errorMessage = data.message || `Error: ${response.status}`;
-      throw new Error(errorMessage);
+    const userSession = await getSession();
+    currentUser.value = userSession.data?.user;
+    
+    if (!currentUser.value) {
+      isAdmin.value = false;
+      return;
     }
 
-    console.log(`Received ${data.length} devices from API`);
+    // Check if user has admin role
+    const userRole = currentUser.value?.role;
+    isAdmin.value = userRole === 'admin' || (Array.isArray(userRole) && userRole.includes('admin'));
+    console.log(`👤 User role check: ${currentUser.value.email} - Admin: ${isAdmin.value}`);
+  } catch (error) {
+    console.error('❌ Error checking admin role:', error);
+    isAdmin.value = false;
+  }
+};
 
-    // Process dates and ensure proper formatting
-    const processedData = data.map((device: any) => ({
-      ...device,
-      lastSeen: device.lastSeen ? new Date(device.lastSeen) : null
-    }));
+// Get unique users from devices for filter
+const uniqueUsers = computed(() => {
+  if (!isAdmin.value) return [];
+  
+  console.log('🔍 [uniqueUsers] Debug - isAdmin:', isAdmin.value);
+  console.log('🔍 [uniqueUsers] Debug - devices count:', devices.value.length);
+  
+  if (devices.value.length > 0) {
+    const sampleDevice = devices.value[0];
+    if (sampleDevice) {
+      console.log('🔍 [uniqueUsers] Sample device data:', sampleDevice);
+      console.log('🔍 [uniqueUsers] Device fields:', Object.keys(sampleDevice));
+    }
+  }
+  
+  const users = new Map();
+  devices.value.forEach((device, index) => {
+    console.log(`🔍 [uniqueUsers] Device ${index}:`, {
+      userId: device.userId,
+      userName: device.userName,
+      userEmail: device.userEmail,
+      hasUserId: !!device.userId,
+      hasUserName: !!device.userName
+    });
+    
+    if (device.userId && device.userName) {
+      users.set(device.userId, {
+        id: device.userId,
+        name: device.userName,
+        email: device.userEmail
+      });
+    }
+  });
+  
+  const userArray = Array.from(users.values());
+  console.log('🔍 [uniqueUsers] Final users:', userArray);
+  
+  return userArray;
+});
 
-    // Update the devices array
-    devices.value = processedData;
+// Filter devices based on selected user (admin only)
+const filteredDevices = computed(() => {
+  if (!isAdmin.value || selectedUserFilter.value === 'all') {
+    return devices.value;
+  }
+  
+  return devices.value.filter(device => device.userId === selectedUserFilter.value);
+});
 
-    // Log connected devices for debugging
-    const connectedDevices = processedData.filter((d: Device) => d.isConnected);
-    console.log(`${connectedDevices.length} devices are currently connected`);
+// Compute grid layout for bento design
+const getDeviceGridClass = (index: number) => {
+  const patterns = [
+    'col-span-1 row-span-2', // Tall card
+    'col-span-2 row-span-1', // Wide card
+    'col-span-1 row-span-1', // Regular card
+    'col-span-1 row-span-1', // Regular card
+    'col-span-2 row-span-2', // Large card
+    'col-span-1 row-span-1', // Regular card
+  ];
+  return patterns[index % patterns.length];
+};
 
-    return processedData;
-  } catch (err: any) {
-    console.error('Error fetching devices:', err);
-    error.value = err.message || 'Unable to load device list';
-    return [];
-  } finally {
-    loading.value = false;
+// Get device status color
+const getStatusColor = (isConnected: boolean) => {
+  return isConnected ? 'success' : 'error';
+};
+
+// Get device icon based on hardware
+const getDeviceIcon = (device: Device) => {
+  if (!device.hardware?.os?.name) return 'i-heroicons-computer-desktop';
+  
+  const osName = device.hardware.os.name.toLowerCase();
+  if (osName.includes('windows')) return 'i-simple-icons-windows';
+  if (osName.includes('macos') || osName.includes('darwin')) return 'i-simple-icons-apple';
+  if (osName.includes('ubuntu')) return 'i-simple-icons-ubuntu';
+  if (osName.includes('linux')) return 'i-simple-icons-linux';
+  return 'i-heroicons-computer-desktop';
+};
+
+// Get performance score based on hardware usage
+const getPerformanceScore = (hardware?: HardwareInfo) => {
+  if (!hardware) return null;
+  
+  const metrics = [];
+  if (hardware.cpu?.usage !== undefined) metrics.push(100 - hardware.cpu.usage);
+  if (hardware.memory?.used && hardware.memory?.total) {
+    const memoryUsage = (hardware.memory.used / hardware.memory.total) * 100;
+    metrics.push(100 - memoryUsage);
+  }
+  if (hardware.storage?.used && hardware.storage?.total) {
+    const storageUsage = (hardware.storage.used / hardware.storage.total) * 100;
+    metrics.push(100 - storageUsage);
+  }
+  
+  if (metrics.length === 0) return null;
+  
+  const avgScore = metrics.reduce((a, b) => a + b, 0) / metrics.length;
+  return Math.round(avgScore);
+};
+
+// Get performance color
+const getPerformanceColor = (score?: number) => {
+  if (!score) return 'neutral';
+  if (score >= 80) return 'success';
+  if (score >= 60) return 'warning';
+  return 'error';
+};
+
+// Optimized device update function
+const updateDeviceInList = async (updatedDevice: Device) => {
+  await nextTick();
+  
+  console.log('📝 [updateDeviceInList] Processing update for:', updatedDevice.macAddress);
+  const index = deviceMap.value.get(updatedDevice.macAddress);
+  console.log('📍 [updateDeviceInList] Device index in list:', index);
+  
+  if (index !== undefined) {
+    // Update existing device
+    const currentDevice = devices.value[index];
+    const wasDisconnected = !currentDevice?.isConnected;
+    
+    devices.value[index] = {
+      ...currentDevice,
+      ...updatedDevice,
+      lastSeen: updatedDevice.lastSeen ? (updatedDevice.lastSeen instanceof Date ? updatedDevice.lastSeen : new Date(updatedDevice.lastSeen)) : null
+    };
+    
+    console.log('✅ [updateDeviceInList] Device updated successfully');
+
+    if (wasDisconnected && updatedDevice.isConnected) {
+      console.log('🎉 [updateDeviceInList] Showing reconnection toast');
+      toast.add({
+        title: 'Device Reconnected',
+        description: `${updatedDevice.name} has reconnected`,
+        color: 'success'
+      });
+    }
+  } else {
+    // Add new device
+    console.log('➕ [updateDeviceInList] Adding new device to list');
+    devices.value.push({
+      ...updatedDevice,
+      lastSeen: updatedDevice.lastSeen ? (updatedDevice.lastSeen instanceof Date ? updatedDevice.lastSeen : new Date(updatedDevice.lastSeen)) : null
+    });
+    
+    updateDeviceMap();
+    
+    console.log('🎉 [updateDeviceInList] Showing new device toast');
+    toast.add({
+      title: 'New Device',
+      description: `${updatedDevice.name} has connected`,
+      color: 'success'
+    });
+  }
+};
+
+// Handle device disconnect
+const handleDeviceDisconnect = async (macAddress: string) => {
+  await nextTick();
+  
+  const index = deviceMap.value.get(macAddress);
+  if (index !== undefined) {
+    const device = devices.value[index];
+    if (device) {
+      device.isConnected = false;
+      
+      toast.add({
+        title: 'Device Disconnected',
+        description: `${device.name} has disconnected`,
+        color: 'warning'
+      });
+    }
   }
 };
 
 // Handle device shutdown
-const handleShutdown = async (macAddress: string) => {
-  if (shuttingDown.value.includes(macAddress)) return;
+const handleDeviceShutdown = async (macAddress: string) => {
+  await nextTick();
+  
+  const index = deviceMap.value.get(macAddress);
+  if (index !== undefined) {
+    const device = devices.value[index];
+    if (device) {
+      device.isConnected = false;
+      
+      toast.add({
+        title: 'Device Shutdown',
+        description: `${device.name} has shut down`,
+        color: 'info'
+      });
+    }
+  }
+};
 
-  shuttingDown.value.push(macAddress);
+// Fetch devices via HTTP API (more reliable than Socket.IO for manual refresh)
+const fetchDevicesViaHTTP = async () => {
   try {
+    console.log('📋 [HTTP] Fetching devices...');
+    
+    const response = await $fetch('/api/devices', {
+      method: 'GET'
+    });
+
+    if (!response.success) {
+      throw new Error('Failed to fetch devices');
+    }
+
+    console.log(`📋 [HTTP] Received ${response.devices.length} devices`);
+    return response.devices;
+  } catch (err: any) {
+    console.error('❌ [HTTP] Error fetching devices:', err);
+    throw err;
+  }
+};
+
+// Fetch devices via Socket.IO (fallback)
+const fetchDevicesViaSocket = async () => {
+  try {
+    console.log('📋 [Socket.IO] Fetching devices...');
+    
     // Get current user ID from session
     const userSession = await getSession();
     const userId = userSession.data?.user?.id;
@@ -73,199 +285,272 @@ const handleShutdown = async (macAddress: string) => {
       throw new Error('User not authenticated');
     }
 
-    // First try using the socket method
+    const data = await getDevicesViaSocket(userId, isAdmin.value);
+    console.log(`📋 [Socket.IO] Received ${data.length} devices`);
+    return data;
+  } catch (err: any) {
+    console.error('❌ [Socket.IO] Error fetching devices:', err);
+    throw err;
+  }
+};
+
+// Main fetch function with HTTP first, Socket.IO fallback
+const fetchDevices = async () => {
+  try {
+    loading.value = true;
+    error.value = '';
+
+    let data;
+    
     try {
-      const result = await sendShutdownCommand(userId, macAddress);
-
-      if (result.success) {
-        // Update UI to show device is disconnected
-        const device = devices.value.find(d => d.macAddress === macAddress);
-        if (device) {
-          device.isConnected = false;
-        }
-
-        toast.add({
-          title: 'Success',
-          description: 'Shutdown command sent via socket',
-        });
-        return;
+      // Try HTTP API first (more reliable)
+      data = await fetchDevicesViaHTTP();
+      console.log('✅ Using HTTP API for device fetch');
+    } catch (httpError) {
+      console.warn('⚠️ HTTP API failed, falling back to Socket.IO:', httpError);
+      
+      // Fallback to Socket.IO if HTTP fails
+      if (!isSocketConnected()) {
+        throw new Error('Both HTTP API and Socket.IO are unavailable');
       }
-    } catch (socketErr) {
-      console.warn('Socket shutdown failed, falling back to API:', socketErr);
+      
+      data = await fetchDevicesViaSocket();
+      console.log('✅ Using Socket.IO fallback for device fetch');
     }
 
-    // Fallback to API method if socket method fails
-    const response = await fetch('/api/devices/shutdown', {
+    // Process devices data
+    const processedData = data.map((device: any) => ({
+      ...device,
+      lastSeen: device.lastSeen ? new Date(device.lastSeen) : null
+    }));
+
+    // Update devices and map
+    devices.value = processedData;
+    updateDeviceMap();
+
+    // Log statistics
+    const connectedDevices = processedData.filter((d: Device) => d.isConnected);
+    console.log(`📊 ${connectedDevices.length}/${processedData.length} devices online`);
+
+    return processedData;
+  } catch (err: any) {
+    console.error('❌ Error fetching devices:', err);
+    error.value = err.message || 'Unable to load device list';
+    return [];
+  } finally {
+    loading.value = false;
+  }
+};
+
+// Shutdown device via HTTP API
+const shutdownDeviceViaHTTP = async (macAddress: string) => {
+  try {
+    console.log(`🔌 [HTTP] Attempting shutdown: ${macAddress}`);
+    
+    const response = await $fetch('/api/devices/shutdown', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ macAddress }),
+      body: { macAddress }
     });
 
-    const result = await response.json();
-
-    if (!response.ok) {
-      const errorMessage = result.message || `Error: ${response.status}`;
-      throw new Error(errorMessage);
+    if (!response.success) {
+      throw new Error(response.message || 'Shutdown failed');
     }
 
-    if (result.success) {
-      // Update UI to show device is disconnected
-      const device = devices.value.find(d => d.macAddress === macAddress);
-      if (device) {
-        device.isConnected = false;
-      }
-
-      toast.add({
-        title: 'Success',
-        description: 'Shutdown command sent via API',
-      });
-    }
+    console.log(`✅ [HTTP] Shutdown successful: ${macAddress}`);
+    return response;
   } catch (err: any) {
-    console.error('Error shutting down device:', err);
-    const errorMessage = err.message || 'An error occurred while shutting down the device';
+    console.error(`❌ [HTTP] Shutdown failed: ${macAddress}`, err);
+    throw err;
+  }
+};
 
+// Shutdown device via Socket.IO (fallback)
+const shutdownDeviceViaSocket = async (macAddress: string) => {
+  try {
+    console.log(`🔌 [Socket.IO] Attempting shutdown: ${macAddress}`);
+    
+    // Get current user ID from session
+    const userSession = await getSession();
+    const userId = userSession.data?.user?.id;
+
+    if (!userId) {
+      throw new Error('User not authenticated');
+    }
+
+    const result = await sendShutdownCommand(userId, macAddress, isAdmin.value);
+    
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+
+    console.log(`✅ [Socket.IO] Shutdown successful: ${macAddress}`);
+    return result;
+  } catch (err: any) {
+    console.error(`❌ [Socket.IO] Shutdown failed: ${macAddress}`, err);
+    throw err;
+  }
+};
+
+// Handle device shutdown command with HTTP first, Socket.IO fallback
+const handleShutdown = async (macAddress: string) => {
+  if (shuttingDown.value.includes(macAddress)) return;
+
+  const device = devices.value.find(d => d.macAddress === macAddress);
+  if (!device) {
     toast.add({
       title: 'Error',
-      description: errorMessage,
+      description: 'Device not found',
+      color: 'error'
+    });
+    return;
+  }
+
+  console.log(`🔌 Attempting to shutdown device: ${device.name} (${macAddress})`);
+  shuttingDown.value.push(macAddress);
+  
+  try {
+    let result;
+    
+    try {
+      // Try HTTP API first (more reliable)
+      result = await shutdownDeviceViaHTTP(macAddress);
+      console.log('✅ Using HTTP API for shutdown');
+    } catch (httpError) {
+      console.warn('⚠️ HTTP shutdown failed, falling back to Socket.IO:', httpError);
+      
+      // Fallback to Socket.IO if HTTP fails
+      if (!isSocketConnected()) {
+        throw new Error('Both HTTP API and Socket.IO are unavailable');
+      }
+      
+      result = await shutdownDeviceViaSocket(macAddress);
+      console.log('✅ Using Socket.IO fallback for shutdown');
+    }
+
+    // Update UI immediately
+    await handleDeviceShutdown(macAddress);
+
+    toast.add({
+      title: 'Success',
+      description: `Shutdown command sent to ${device.name}`,
+      color: 'success'
+    });
+  } catch (err: any) {
+    console.error('❌ Error shutting down device:', err);
+    
+    toast.add({
+      title: 'Error',
+      description: err.message || 'Failed to shutdown device',
+      color: 'error'
     });
   } finally {
     shuttingDown.value = shuttingDown.value.filter(id => id !== macAddress);
   }
 };
 
-// Listen for updates from server
+// Generate unique component ID based on current route and admin status
+const componentId = computed(() => {
+  const route = useRoute();
+  return `device-list-${route.path}-${isAdmin.value ? 'admin' : 'user'}`;
+});
+
+// Setup Socket.IO listeners
 const setupSocketListeners = () => {
-  // Handle device updates
-  socket.on('device-update', (updatedDevice: Device) => {
-    console.log('Received device update:', updatedDevice);
+  console.log('🔧 Setting up Socket.IO listeners for:', componentId.value);
+  
+  setupDeviceListeners(componentId.value, {
+    onDeviceUpdate: (updatedDevice: Device) => {
+      console.log(`🔄 Live update: ${updatedDevice?.name} (${updatedDevice?.isConnected ? 'Online' : 'Offline'})`);
+      updateDeviceInList(updatedDevice);
+    },
 
-    // Find the device in our current list
-    const index = devices.value.findIndex(d => d.macAddress === updatedDevice.macAddress);
+    onDeviceDisconnect: (macAddress: string) => {
+      console.log('❌ Device disconnect:', macAddress);
+      handleDeviceDisconnect(macAddress);
+    },
 
-    if (index >= 0) {
-      // Update existing device with new data
+    onDeviceShutdown: (macAddress: string) => {
+      console.log('🔌 Device shutdown:', macAddress);
+      handleDeviceShutdown(macAddress);
+    },
 
-      if(!devices.value[index]?.isConnected){
-        toast.add({
-          title: 'Reconnected',
-          description: `Device ${updatedDevice.name} has reconnected`,
-          color: 'success'
-        });
-      }
-      devices.value[index] = {
-        ...devices.value[index],
-        ...updatedDevice,
-        lastSeen: new Date(updatedDevice.lastSeen)
-      };
-      console.log('Updated existing device:', devices.value[index]);
-    } else {
-      // Add new device to the list
-      devices.value.push({
-        ...updatedDevice,
-        lastSeen: new Date(updatedDevice.lastSeen)
-      });
-      console.log('Added new device to list');
-
-      // Show notification for new device
-      toast.add({
-        title: 'New Device',
-        description: `Device ${updatedDevice.name} has connected`,
-        color: 'success'
-      });
-    }
-
-    // Force Vue to recognize the change
-    devices.value = [...devices.value];
-  });
-
-  // Handle device disconnection
-  socket.on('device-disconnect', (macAddress: string) => {
-    console.log('Received device disconnect:', macAddress);
-
-    const device = devices.value.find(d => d.macAddress === macAddress);
-    if (device) {
-      device.isConnected = false;
-
-      // Force Vue to recognize the change
-      devices.value = [...devices.value];
-
-      toast.add({
-        title: 'Device Disconnected',
-        description: `Device ${device.name} has disconnected`,
-        color: 'warning'
-      });
+    onReconnect: () => {
+      console.log('🔄 Socket reconnected, refreshing devices');
+      fetchDevices();
     }
   });
 
-  // Handle device shutdown
-  socket.on('device-shutdown', (macAddress: string) => {
-    console.log('Received device shutdown:', macAddress);
-
-    const device = devices.value.find(d => d.macAddress === macAddress);
-    if (device) {
-      device.isConnected = false;
-
-      // Force Vue to recognize the change
-      devices.value = [...devices.value];
-
-      toast.add({
-        title: 'Device Shutdown',
-        description: `Device ${device.name} has shut down`,
-        color: 'info'
-      });
-    }
-  });
-
-  // Handle socket reconnection
-  socket.on('reconnect', () => {
-    console.log('Socket reconnected, refreshing device list');
-    fetchDevices();
-  });
+  console.log('✅ Socket.IO listeners setup complete for:', componentId.value);
 };
+
+// Watch for changes and update debug data
+watch([devices, uniqueUsers, isAdmin], () => {
+  exposeDebugData();
+}, { deep: true });
 
 const toast = useToast();
 
-// Add a watcher to log device changes for debugging
-watch(devices, (newDevices) => {
-  console.log('Devices array updated:', newDevices);
-}, { deep: true });
+// Refs for cleanup
+const refreshInterval = ref<NodeJS.Timeout | null>(null);
 
 // Initialize component
-onMounted(() => {
-  console.log('DeviceList component mounted');
+onMounted(async () => {
+  console.log('🚀 DeviceList component mounted');
 
-  // Initial data fetch
-  fetchDevices().then(() => {
-    console.log('Initial devices loaded:', devices.value);
-  });
+  // Check admin role first
+  await checkAdminRole();
 
-  // Setup socket listeners
+  // Setup Socket.IO listeners first
   setupSocketListeners();
 
-  // Set up a refresh interval (every 5 minutes)
-  const refreshInterval = setInterval(() => {
-    console.log('Auto-refreshing device list');
-    fetchDevices();
-  }, 5 * 60 * 1000);
+  // Wait for socket connection before fetching data
+  const waitForSocket = () => {
+    return new Promise<void>((resolve) => {
+      const checkConnection = () => {
+        if (isSocketConnected()) {
+          console.log('✅ Socket ready, proceeding with data fetch');
+          resolve();
+        } else {
+          console.log('⏳ Waiting for socket connection...');
+          setTimeout(checkConnection, 100); // Check every 100ms
+        }
+      };
+      checkConnection();
+    });
+  };
 
-  // Clean up interval on unmount
-  onBeforeUnmount(() => {
-    clearInterval(refreshInterval);
-  });
+  // Wait for socket then fetch devices
+  await waitForSocket();
+  await fetchDevices();
+  console.log(`✅ Initial load complete: ${devices.value.length} devices`);
+  
+  // Expose debug data
+  exposeDebugData();
+
+  // Auto-refresh every 3 minutes as backup
+  refreshInterval.value = setInterval(() => {
+    if (isSocketConnected()) {
+      console.log('🔄 Auto-refresh devices');
+      fetchDevices();
+    }
+  }, 3 * 60 * 1000);
 });
 
-// Clean up socket listeners when component is unmounted
+// Cleanup on unmount
 onBeforeUnmount(() => {
-  console.log('DeviceList component unmounting, removing socket listeners');
-
-  // Remove all socket listeners
-  socket.off('device-update');
-  socket.off('device-disconnect');
-  socket.off('device-shutdown');
-  socket.off('reconnect');
+  console.log('🧹 Cleaning up DeviceList component:', componentId.value);
+  
+  // Clear refresh interval
+  if (refreshInterval.value) {
+    clearInterval(refreshInterval.value);
+    refreshInterval.value = null;
+  }
+  
+  // Clean up socket listeners
+  cleanupDeviceListeners(componentId.value);
 });
 
-// Format date/time
+// Utility functions
 const formatDate = (date?: Date) => {
   if (!date) return 'N/A';
   return new Intl.DateTimeFormat('en-US', {
@@ -276,26 +561,168 @@ const formatDate = (date?: Date) => {
     minute: '2-digit'
   }).format(new Date(date));
 };
+
+const getTimeAgo = (date?: Date) => {
+  if (!date) return 'N/A';
+  
+  const now = new Date();
+  const diff = now.getTime() - new Date(date).getTime();
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  
+  if (days > 0) return `${days}d ago`;
+  if (hours > 0) return `${hours}h ago`;
+  if (minutes > 0) return `${minutes}m ago`;
+  return 'Just now';
+};
+
+// Simple refresh handler
+const handleRefresh = async () => {
+  await fetchDevices();
+  exposeDebugData();
+};
+
+// Make data accessible for debugging in console
+const exposeDebugData = () => {
+  if (typeof window !== 'undefined') {
+    (window as any).__deviceListDebug = {
+      devices: devices.value,
+      uniqueUsers: uniqueUsers.value,
+      filteredDevices: filteredDevices.value,
+      isAdmin: isAdmin.value,
+      currentUser: currentUser.value,
+      selectedUserFilter: selectedUserFilter.value,
+      componentId: componentId.value
+    };
+    console.log('🐛 Debug data exposed to window.__deviceListDebug');
+  }
+};
+
+// Debug socket connection
+const debugSocketConnection = async () => {
+  console.log('🐛 [DEBUG] Socket connection info:');
+  console.log('Socket connected:', isSocketConnected());
+  console.log('Component ID:', componentId.value);
+  console.log('Is Admin:', isAdmin.value);
+  console.log('Current devices count:', devices.value.length);
+  
+  const debugInfo = getSocketDebugInfo();
+  console.log('Socket debug info:', debugInfo);
+  
+  // Test event trigger if we have devices
+  if (devices.value.length > 0) {
+    const testDevice = devices.value[0];
+    if (testDevice) {
+      console.log('🧪 [DEBUG] Triggering test event for:', testDevice.macAddress);
+      
+      try {
+        const response = await $fetch('/api/debug/trigger-event', {
+          method: 'POST',
+          body: {
+            type: 'device-update',
+            macAddress: testDevice.macAddress,
+            deviceName: testDevice.name
+          }
+        });
+        
+        console.log('✅ [DEBUG] Test event triggered:', response);
+        toast.add({
+          title: 'Debug Event Triggered',
+          description: `Test event sent for ${testDevice.name}`,
+          color: 'success'
+        });
+      } catch (error) {
+        console.error('❌ [DEBUG] Failed to trigger test event:', error);
+        toast.add({
+          title: 'Debug Error',
+          description: 'Failed to trigger test event',
+          color: 'error'
+        });
+      }
+    }
+  } else {
+    toast.add({
+      title: 'Debug Info',
+      description: `Socket connected: ${debugInfo.connected}, Components: ${debugInfo.componentCount}`,
+      color: 'info'
+    });
+  }
+};
 </script>
 
 <template>
-  <div class="container mx-auto px-4 py-6 ">
-    <!-- Header with refresh button and device count -->
-    <div class="flex justify-between items-center mb-6">
-      <h1 class="text-2xl font-bold">Device Management</h1>
-      <div class="flex items-center gap-2">
-        <span v-if="!loading && devices.length > 0" class="text-sm">
-          {{ devices.length }} devices
-        </span>
+  <div class="container mx-auto px-4 py-6">
+    <!-- Header with stats and refresh -->
+    <div class="flex justify-between items-center mb-8">
+      <div>
+        <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+          Device Management
+        </h1>
+        <p class="text-gray-600 dark:text-gray-400 mt-1">Monitor and control your connected devices</p>
+      </div>
+      
+      <div class="flex items-center gap-4">
+        <!-- Admin badge -->
+        <UBadge v-if="isAdmin" color="primary" size="sm" class="flex items-center gap-1">
+          <UIcon name="i-heroicons-shield-check" class="h-3 w-3" />
+          Admin View
+        </UBadge>
+        
+        <!-- User filter for admin -->
+        <USelect
+          v-if="isAdmin && uniqueUsers.length > 0"
+          v-model="selectedUserFilter"
+          :options="[
+            { label: 'All Users', value: 'all' },
+            ...uniqueUsers.map(user => ({ 
+              label: user.name || user.email, 
+              value: user.id 
+            }))
+          ]"
+          placeholder="Filter by user"
+          size="sm"
+          class="w-48"
+        />
+        
+        <!-- Stats -->
+        <div v-if="!loading && filteredDevices.length > 0" class="flex items-center gap-4 text-sm">
+          <div class="flex items-center gap-2">
+            <div class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>
+            <span>{{ filteredDevices.filter(d => d.isConnected).length }} online</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="w-3 h-3 rounded-full bg-gray-400"></div>
+            <span>{{ filteredDevices.filter(d => !d.isConnected).length }} offline</span>
+          </div>
+          <div v-if="isAdmin" class="flex items-center gap-2">
+            <div class="w-3 h-3 rounded-full bg-blue-500"></div>
+            <span>{{ uniqueUsers.length }} users</span>
+          </div>
+        </div>
+        
+        <!-- Debug button (admin only) -->
         <UButton
-          variant="ghost"
+          v-if="isAdmin"
+          variant="outline"
+          color="warning"
+          icon="i-heroicons-bug-ant"
+          @click="debugSocketConnection"
+          size="sm"
+        >
+          Debug Socket
+        </UButton>
+        
+        <!-- Refresh button -->
+        <UButton
+          variant="outline"
           icon="i-heroicons-arrow-path"
           :loading="loading"
-          @click="fetchDevices"
-          class="rounded-full h-10 w-10 p-0 flex items-center justify-center"
-          :class="{'animate-spin': loading}"
-          title="Refresh"
-        />
+          @click="handleRefresh"
+          size="sm"
+        >
+          Refresh
+        </UButton>
       </div>
     </div>
 
@@ -310,102 +737,146 @@ const formatDate = (date?: Date) => {
     />
 
     <!-- Loading state -->
-    <div v-if="loading" class="flex flex-col items-center justify-center py-12">
-      <UIcon name="i-heroicons-arrow-path" class="animate-spin h-12 w-12 mb-4 text-primary" />
-      <p>Loading device list...</p>
+    <div v-if="loading" class="flex flex-col items-center justify-center py-20">
+      <div class="relative">
+        <div class="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+        <UIcon name="i-heroicons-computer-desktop" class="absolute inset-0 m-auto h-6 w-6 text-blue-600" />
+      </div>
+      <p class="mt-4 text-gray-600 dark:text-gray-400">Loading your devices...</p>
     </div>
 
     <!-- Empty state -->
-    <div v-if="!loading && (!devices || devices.length === 0)" class="flex flex-col items-center justify-center py-16 card rounded-lg">
-      <UIcon name="i-heroicons-computer-desktop" class="h-16 w-16 mb-4" />
-      <h3 class="text-xl font-medium mb-2">No devices connected</h3>
-      <p class="mb-6 text-center max-w-md">
-        No devices are currently connected to your account.
+    <div v-if="!loading && (!filteredDevices || filteredDevices.length === 0)" class="text-center py-20">
+      <div class="bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-full w-24 h-24 mx-auto mb-6 flex items-center justify-center">
+        <UIcon name="i-heroicons-computer-desktop" class="h-12 w-12 text-blue-600" />
+      </div>
+      <h3 class="text-2xl font-semibold mb-3">
+        {{ isAdmin && selectedUserFilter !== 'all' ? 'No devices for selected user' : 'No devices found' }}
+      </h3>
+      <p class="text-gray-600 dark:text-gray-400 mb-6 max-w-md mx-auto">
+        {{ isAdmin && selectedUserFilter !== 'all' 
+          ? 'The selected user has no connected devices.' 
+          : 'Connect your first device to start monitoring and managing your network.' 
+        }}
       </p>
       <UButton
         variant="outline"
         icon="i-heroicons-arrow-path"
-        @click="fetchDevices"
+        @click="handleRefresh"
+        size="lg"
       >
-        Refresh
+        Refresh devices
       </UButton>
     </div>
 
-    <!-- Device grid -->
-    <div v-if="!loading && devices && devices.length > 0" class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+    <!-- Bento Grid Layout -->
+    <div v-if="!loading && filteredDevices && filteredDevices.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div
-        v-for="device in devices"
+        v-for="(device, index) in filteredDevices"
         :key="device.macAddress"
-        class="rounded-xl border bg-card shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden"
+        :class="getDeviceGridClass(index)"
+        class="group relative overflow-hidden rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm hover:shadow-xl transition-all duration-500 hover:-translate-y-1"
       >
-        <!-- Card header with status badge -->
-        <div class="p-6 pb-4 border-b card">
-          <div class="flex items-center justify-between">
-            <h3 class="text-xl font-semibold truncate">{{ device.name }}</h3>
+        <!-- Status indicator -->
+        <div class="absolute top-4 right-4 z-10">
+          <div class="flex items-center gap-2">
             <UBadge
-              :color="device.isConnected ? 'success' : 'error'"
-              class="ml-2"
+              :color="getStatusColor(device.isConnected)"
               size="sm"
+              class="backdrop-blur-sm"
             >
               <div class="flex items-center gap-1">
-                <div class="h-2 w-2 rounded-full" :class="device.isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'"></div>
-                {{ device.isConnected ? 'Connected' : 'Disconnected' }}
+                <div 
+                  class="w-2 h-2 rounded-full"
+                  :class="device.isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'"
+                ></div>
+                {{ device.isConnected ? 'Online' : 'Offline' }}
               </div>
             </UBadge>
           </div>
         </div>
 
-        <!-- Card body with device details -->
-        <div class="p-6 space-y-4 card">
-          <!-- Basic Info -->
-          <div class="space-y-3">
-            <div class="flex items-center">
-              <UIcon name="i-heroicons-globe-alt" class="h-5 w-5 mr-3 text-blue-500" />
-              <div>
-                <div class="text-sm text-gray-500">IP Address</div>
-                <div class="font-medium">{{ device.ipAddress }}</div>
-              </div>
+        <!-- Background pattern -->
+        <div class="absolute inset-0 bg-gradient-to-br from-blue-50/50 via-transparent to-purple-50/50 dark:from-blue-900/10 dark:to-purple-900/10"></div>
+        
+        <!-- Device card content -->
+        <div class="relative p-6 h-full flex flex-col">
+          <!-- Header -->
+          <div class="flex items-start gap-4 mb-4">
+            <div class="p-3 leading-0 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-lg">
+              <UIcon :name="getDeviceIcon(device)" class="h-6 w-6" />
             </div>
-
-            <div class="flex items-center">
-              <UIcon name="i-heroicons-cpu-chip" class="h-5 w-5 mr-3 text-purple-500" />
-              <div>
-                <div class="text-sm text-gray-500">MAC Address</div>
-                <div class="font-medium font-mono text-sm">{{ device.macAddress }}</div>
-              </div>
-            </div>
-
-            <div class="flex items-center">
-              <UIcon name="i-heroicons-clock" class="h-5 w-5 mr-3 text-gray-500" />
-              <div>
-                <div class="text-sm text-gray-500">Last Seen</div>
-                <div class="font-medium">{{ formatDate(device.lastSeen) }}</div>
+            <div class="flex-1 min-w-0">
+              <h3 class="text-xl font-bold text-gray-900 dark:text-white truncate group-hover:text-blue-600 transition-colors">
+                {{ device.name }}
+              </h3>
+              <p class="text-sm text-gray-500 dark:text-gray-400">{{ device.ipAddress }}</p>
+              <!-- User owner info for admin -->
+              <div v-if="isAdmin && device.userName" class="flex items-center gap-1 mt-1">
+                <UIcon name="i-heroicons-user" class="h-3 w-3 text-blue-500" />
+                <span class="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                  {{ device.userName }}
+                </span>
               </div>
             </div>
           </div>
 
-          <!-- Hardware Info -->
-          <HardwareInfo :hardware="device.hardware" />
+          <!-- Hardware info -->
+          <div class="flex-1">
+            <HardwareInfo 
+              :hardware="device.hardware" 
+              :variant="(device.hardware && getDeviceGridClass?.(index)?.includes('row-span-2')) ? 'default' : 'compact'"
+            />
+          </div>
+
+          <!-- Device details -->
+          <div class="mt-4 space-y-2 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500 dark:text-gray-400">MAC Address</span>
+              <span class="font-mono text-xs">{{ device.macAddress }}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500 dark:text-gray-400">Last seen</span>
+              <span>{{ getTimeAgo(device.lastSeen || undefined) }}</span>
+            </div>
+          </div>
+
+          <!-- Action button -->
+          <div class="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800">
+            <UButton
+              :icon="device.isConnected ? 'i-heroicons-power' : 'i-heroicons-arrow-path'"
+              :color="device.isConnected ? 'error' : 'neutral'"
+              :variant="device.isConnected ? 'soft' : 'outline'"
+              class="w-full"
+              size="sm"
+              :loading="shuttingDown.includes(device.macAddress)"
+              :disabled="!device.isConnected || shuttingDown.includes(device.macAddress)"
+              @click="handleShutdown(device.macAddress)"
+            >
+              {{ device.isConnected ? 'Shutdown Device' : 'Device Offline' }}
+            </UButton>
+          </div>
         </div>
 
-        <!-- Card footer with action button -->
-        <div class="p-4 card border-t">
-          <UButton
-            icon="i-heroicons-power"
-            :color="device.isConnected ? 'error' : 'neutral'"
-            variant="outline"
-            class="w-full"
-            :loading="shuttingDown.includes(device.macAddress)"
-            :disabled="!device.isConnected || shuttingDown.includes(device.macAddress)"
-            @click="handleShutdown(device.macAddress)"
-          >
-            {{ device.isConnected ? 'Shut down' : 'Offline' }}
-          </UButton>
-        </div>
+        <!-- Hover overlay -->
+        <div class="absolute inset-0 bg-gradient-to-t from-black/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
       </div>
     </div>
+    
+    <!-- Socket Debug Widget (admin only, development only) -->
+    <SocketDebugWidget 
+      v-if="isAdmin && $config.public.dev" 
+      :component-id="componentId" 
+    />
   </div>
 </template>
+
+<style scoped>
+.auto-rows-fr {
+  grid-auto-rows: minmax(320px, auto);
+}
+</style>
+
 
 
 

@@ -11,7 +11,8 @@
     "lint": " eslint . --fix",
     "auth:generate": "npx @better-auth/cli generate --output ./db/authSchema.ts --config ./lib/auth.ts -y",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "db:drop": "drizzle-kit drop"
   },
   "dependencies": {
     "@nuxt/eslint": "1.3.0",

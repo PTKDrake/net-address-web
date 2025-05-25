@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Peer } from "crossws";
 import { devices, type HardwareInfo } from "~~/db/deviceSchema";
 import { eq } from "drizzle-orm";
-import { broadcastDeviceUpdate, broadcastDeviceDisconnect, broadcastDeviceShutdown } from '~~/server/plugins/socket.io';
+import { broadcastDeviceUpdate, broadcastDeviceDisconnect, broadcastDeviceShutdown, syncWebSocketConnection } from '~~/server/plugins/socket.io';
 
 // Hardware schema for validation
 const HardwareSchema = z.object({
@@ -124,8 +124,11 @@ export class RegisterProcessor extends MessageProcessor<RegisterData> {
         .where(eq(devices.macAddress, macAddress))
         .limit(1);
 
+      const wasConnected = existingDevices.length > 0 && existingDevices[0].isConnected;
+      const wasInConnectionsMap = this.computerConnections.has(macAddress);
+
       if (existingDevices.length > 0) {
-        console.log(`Device already registered: ${machineName} (${macAddress}), updating info`);
+        console.log(`🔄 Device already registered: ${machineName} (${macAddress}), updating info`);
 
         await useDrizzle().update(devices).set({
           name: machineName,
@@ -136,21 +139,25 @@ export class RegisterProcessor extends MessageProcessor<RegisterData> {
           updatedAt: new Date()
         }).where(eq(devices.macAddress, macAddress));
 
-        this.sendResponse("info", existingDevices[0].isConnected ? "updated" : "connected");
-
-        if (!this.computerConnections.has(macAddress)) {
-          console.log(`Adding device to connections map: ${machineName} (${macAddress})`);
-          this.computerConnections.set(macAddress, this.peer);
+        this.sendResponse("info", wasConnected ? "updated" : "connected");
+        
+        // Always update the connection map
+        this.computerConnections.set(macAddress, this.peer);
+        
+        // Sync with Socket.IO clients if connection status changed
+        if (!wasConnected || !wasInConnectionsMap) {
+          console.log(`🔗 Syncing connection status: ${machineName} (${macAddress})`);
+          syncWebSocketConnection(macAddress, true);
         }
       } else {
         // Only proceed with registration if userId is provided
         if (!userId) {
-          console.warn(`Cannot register new device without userId: ${machineName} (${macAddress})`);
+          console.warn(`❌ Cannot register new device without userId: ${machineName} (${macAddress})`);
           this.sendError("userId required for new device registration");
           return;
         }
 
-        console.log(`Registering new device: ${machineName} (${macAddress})`);
+        console.log(`✅ Registering new device: ${machineName} (${macAddress})`);
 
         await useDrizzle().insert(devices).values({
           userId: userId,
@@ -163,10 +170,14 @@ export class RegisterProcessor extends MessageProcessor<RegisterData> {
 
         this.computerConnections.set(macAddress, this.peer);
         this.sendResponse("info", "registered");
+        
+        // Sync with Socket.IO clients for new device
+        console.log(`🔗 Syncing new device: ${machineName} (${macAddress})`);
+        syncWebSocketConnection(macAddress, true);
       }
 
-      // Broadcast device update to all clients
-      console.log(`Broadcasting device update: ${machineName} (${macAddress})`);
+      // Always broadcast device update to all clients
+      console.log(`📡 Broadcasting device update: ${machineName} (${macAddress})`);
       await broadcastDeviceUpdate(macAddress);
     } catch (error) {
       console.error('Error processing register message:', error);
@@ -211,9 +222,20 @@ export class ExistsProcessor extends MessageProcessor<ExistsData> {
 export class UpdateProcessor extends MessageProcessor<UpdateData> {
   async process(): Promise<void> {
     const { machineName, ipAddress, macAddress, hardware } = this.data;
-    console.log(`Device update request: ${machineName} (${macAddress})`);
+    console.log(`🔄 Device update request: ${machineName} (${macAddress})`);
 
     try {
+      // Check if device was connected before
+      const currentDevice = await useDrizzle()
+        .select({ isConnected: devices.isConnected })
+        .from(devices)
+        .where(eq(devices.macAddress, macAddress))
+        .limit(1)
+        .then(results => results[0]);
+
+      const wasConnected = currentDevice?.isConnected || false;
+      const wasInConnectionsMap = this.computerConnections.has(macAddress);
+
       await useDrizzle().update(devices).set({
         name: machineName,
         ipAddress: ipAddress,
@@ -223,13 +245,22 @@ export class UpdateProcessor extends MessageProcessor<UpdateData> {
         updatedAt: new Date()
       }).where(eq(devices.macAddress, macAddress));
 
+      // Always update the connection map
+      this.computerConnections.set(macAddress, this.peer);
+
       this.sendResponse("info", "updated");
 
-      // Broadcast device update to all clients
-      console.log(`Broadcasting device update: ${machineName} (${macAddress})`);
+      // Sync with Socket.IO clients if connection status changed
+      if (!wasConnected || !wasInConnectionsMap) {
+        console.log(`🔗 Syncing connection status for update: ${machineName} (${macAddress})`);
+        syncWebSocketConnection(macAddress, true);
+      }
+
+      // Always broadcast device update to all clients
+      console.log(`📡 Broadcasting device update: ${machineName} (${macAddress})`);
       await broadcastDeviceUpdate(macAddress);
     } catch (error) {
-      console.error('Error processing update message:', error);
+      console.error('❌ Error processing update message:', error);
       this.sendError("Failed to update device");
     }
   }
@@ -249,9 +280,9 @@ export class DisconnectProcessor extends MessageProcessor<DisconnectData> {
       this.computerConnections.delete(macAddress);
       this.sendResponse("info", "disconnected");
 
-      // Broadcast device disconnection to all clients
-      console.log(`Broadcasting device disconnect: ${macAddress}`);
-      await broadcastDeviceDisconnect(macAddress);
+      // Sync with Socket.IO clients (this will handle the broadcast)
+      console.log(`🔄 Syncing disconnect message: ${macAddress}`);
+      syncWebSocketConnection(macAddress, false);
     } catch (error) {
       console.error('Error processing disconnect message:', error);
       this.sendError("Failed to disconnect device");
@@ -274,9 +305,9 @@ export class ShutdownProcessor extends MessageProcessor<ShutdownData> {
       // Remove from connections map
       this.computerConnections.delete(macAddress);
 
-      // Broadcast device shutdown to all clients
-      console.log(`Broadcasting device shutdown: ${macAddress}`);
-      await broadcastDeviceShutdown(macAddress);
+      // Sync with Socket.IO clients (this will handle the broadcast)
+      console.log(`🔄 Syncing shutdown notification: ${macAddress}`);
+      syncWebSocketConnection(macAddress, false, 'shutdown');
     } catch (error) {
       console.error('Error processing shutdown message:', error);
       this.sendError("Failed to process shutdown");

@@ -1,14 +1,14 @@
 import { betterAuth } from "better-auth";
-import { apiKey, openAPI, bearer } from "better-auth/plugins"
+import { apiKey, openAPI, bearer, admin } from "better-auth/plugins"
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { useDrizzle } from "../server/utils/drizzle";
-import {sendUserVerificationEmail, sendUserResetPasswordEmail} from "../server/utils/email";
+import { sendUserVerificationEmail, sendUserResetPasswordEmail } from "../server/utils/email";
 
 export const auth = betterAuth({
     database: drizzleAdapter(useDrizzle(), {
         provider: 'pg'
     }),
-    plugins: [apiKey(), openAPI(), bearer()],
+    plugins: [apiKey(), openAPI(), bearer(), admin()],
     socialProviders: {
         google: {
             clientId: process.env.GOOGLE_CLIENT_ID as string,
@@ -27,7 +27,7 @@ export const auth = betterAuth({
     emailAndPassword: {
         enabled: true,
         requireEmailVerification: true,
-        async sendResetPassword({user, url}){
+        async sendResetPassword({ user, url }) {
             await sendUserResetPasswordEmail(user, url);
         }
     },
