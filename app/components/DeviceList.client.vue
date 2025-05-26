@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import {sendShutdownCommand, getDevicesViaSocket, setupDeviceListeners, cleanupDeviceListeners, isSocketConnected, getSocketDebugInfo} from './socket';
-import {onBeforeUnmount, onMounted, ref, watch, nextTick} from 'vue';
+import {sendShutdownCommand, getDevicesViaSocket, setupDeviceListeners, cleanupDeviceListeners, isSocketConnected} from './socket';
+import {onBeforeUnmount, onMounted, ref, nextTick} from 'vue';
 import {getSession, authClient} from '~~/lib/auth-client';
 import type { HardwareInfo } from '~~/db/deviceSchema';
 
@@ -49,10 +49,9 @@ const checkAdminRole = async () => {
 
     // Check if user has admin role
     const userRole = currentUser.value?.role;
-    isAdmin.value = userRole === 'admin' || (Array.isArray(userRole) && userRole.includes('admin'));
-    console.log(`👤 User role check: ${currentUser.value.email} - Admin: ${isAdmin.value}`);
+    isAdmin.value = !!(userRole && (userRole === 'admin' || (Array.isArray(userRole) && userRole.includes('admin'))));
   } catch (error) {
-    console.error('❌ Error checking admin role:', error);
+    console.error('Error checking admin role:', error);
     isAdmin.value = false;
   }
 };
@@ -61,27 +60,8 @@ const checkAdminRole = async () => {
 const uniqueUsers = computed(() => {
   if (!isAdmin.value) return [];
   
-  console.log('🔍 [uniqueUsers] Debug - isAdmin:', isAdmin.value);
-  console.log('🔍 [uniqueUsers] Debug - devices count:', devices.value.length);
-  
-  if (devices.value.length > 0) {
-    const sampleDevice = devices.value[0];
-    if (sampleDevice) {
-      console.log('🔍 [uniqueUsers] Sample device data:', sampleDevice);
-      console.log('🔍 [uniqueUsers] Device fields:', Object.keys(sampleDevice));
-    }
-  }
-  
   const users = new Map();
-  devices.value.forEach((device, index) => {
-    console.log(`🔍 [uniqueUsers] Device ${index}:`, {
-      userId: device.userId,
-      userName: device.userName,
-      userEmail: device.userEmail,
-      hasUserId: !!device.userId,
-      hasUserName: !!device.userName
-    });
-    
+  devices.value.forEach((device) => {
     if (device.userId && device.userName) {
       users.set(device.userId, {
         id: device.userId,
@@ -91,10 +71,7 @@ const uniqueUsers = computed(() => {
     }
   });
   
-  const userArray = Array.from(users.values());
-  console.log('🔍 [uniqueUsers] Final users:', userArray);
-  
-  return userArray;
+  return Array.from(users.values());
 });
 
 // Filter devices based on selected user (admin only)
@@ -169,9 +146,7 @@ const getPerformanceColor = (score?: number) => {
 const updateDeviceInList = async (updatedDevice: Device) => {
   await nextTick();
   
-  console.log('📝 [updateDeviceInList] Processing update for:', updatedDevice.macAddress);
   const index = deviceMap.value.get(updatedDevice.macAddress);
-  console.log('📍 [updateDeviceInList] Device index in list:', index);
   
   if (index !== undefined) {
     // Update existing device
@@ -183,11 +158,8 @@ const updateDeviceInList = async (updatedDevice: Device) => {
       ...updatedDevice,
       lastSeen: updatedDevice.lastSeen ? (updatedDevice.lastSeen instanceof Date ? updatedDevice.lastSeen : new Date(updatedDevice.lastSeen)) : null
     };
-    
-    console.log('✅ [updateDeviceInList] Device updated successfully');
 
     if (wasDisconnected && updatedDevice.isConnected) {
-      console.log('🎉 [updateDeviceInList] Showing reconnection toast');
       toast.add({
         title: 'Device Reconnected',
         description: `${updatedDevice.name} has reconnected`,
@@ -196,7 +168,6 @@ const updateDeviceInList = async (updatedDevice: Device) => {
     }
   } else {
     // Add new device
-    console.log('➕ [updateDeviceInList] Adding new device to list');
     devices.value.push({
       ...updatedDevice,
       lastSeen: updatedDevice.lastSeen ? (updatedDevice.lastSeen instanceof Date ? updatedDevice.lastSeen : new Date(updatedDevice.lastSeen)) : null
@@ -204,7 +175,6 @@ const updateDeviceInList = async (updatedDevice: Device) => {
     
     updateDeviceMap();
     
-    console.log('🎉 [updateDeviceInList] Showing new device toast');
     toast.add({
       title: 'New Device',
       description: `${updatedDevice.name} has connected`,
@@ -456,37 +426,26 @@ const componentId = computed(() => {
 
 // Setup Socket.IO listeners
 const setupSocketListeners = () => {
-  console.log('🔧 Setting up Socket.IO listeners for:', componentId.value);
-  
   setupDeviceListeners(componentId.value, {
     onDeviceUpdate: (updatedDevice: Device) => {
-      console.log(`🔄 Live update: ${updatedDevice?.name} (${updatedDevice?.isConnected ? 'Online' : 'Offline'})`);
       updateDeviceInList(updatedDevice);
     },
 
     onDeviceDisconnect: (macAddress: string) => {
-      console.log('❌ Device disconnect:', macAddress);
       handleDeviceDisconnect(macAddress);
     },
 
     onDeviceShutdown: (macAddress: string) => {
-      console.log('🔌 Device shutdown:', macAddress);
       handleDeviceShutdown(macAddress);
     },
 
     onReconnect: () => {
-      console.log('🔄 Socket reconnected, refreshing devices');
       fetchDevices();
     }
   });
-
-  console.log('✅ Socket.IO listeners setup complete for:', componentId.value);
 };
 
-// Watch for changes and update debug data
-watch([devices, uniqueUsers, isAdmin], () => {
-  exposeDebugData();
-}, { deep: true });
+
 
 const toast = useToast();
 
@@ -495,9 +454,7 @@ const refreshInterval = ref<NodeJS.Timeout | null>(null);
 
 // Initialize component
 onMounted(async () => {
-  console.log('🚀 DeviceList component mounted');
-
-  // Check admin role first
+  // Check admin role first and wait for completion
   await checkAdminRole();
 
   // Setup Socket.IO listeners first
@@ -508,10 +465,8 @@ onMounted(async () => {
     return new Promise<void>((resolve) => {
       const checkConnection = () => {
         if (isSocketConnected()) {
-          console.log('✅ Socket ready, proceeding with data fetch');
           resolve();
         } else {
-          console.log('⏳ Waiting for socket connection...');
           setTimeout(checkConnection, 100); // Check every 100ms
         }
       };
@@ -522,15 +477,10 @@ onMounted(async () => {
   // Wait for socket then fetch devices
   await waitForSocket();
   await fetchDevices();
-  console.log(`✅ Initial load complete: ${devices.value.length} devices`);
-  
-  // Expose debug data
-  exposeDebugData();
 
   // Auto-refresh every 3 minutes as backup
   refreshInterval.value = setInterval(() => {
     if (isSocketConnected()) {
-      console.log('🔄 Auto-refresh devices');
       fetchDevices();
     }
   }, 3 * 60 * 1000);
@@ -538,8 +488,6 @@ onMounted(async () => {
 
 // Cleanup on unmount
 onBeforeUnmount(() => {
-  console.log('🧹 Cleaning up DeviceList component:', componentId.value);
-  
   // Clear refresh interval
   if (refreshInterval.value) {
     clearInterval(refreshInterval.value);
@@ -580,75 +528,9 @@ const getTimeAgo = (date?: Date) => {
 // Simple refresh handler
 const handleRefresh = async () => {
   await fetchDevices();
-  exposeDebugData();
 };
 
-// Make data accessible for debugging in console
-const exposeDebugData = () => {
-  if (typeof window !== 'undefined') {
-    (window as any).__deviceListDebug = {
-      devices: devices.value,
-      uniqueUsers: uniqueUsers.value,
-      filteredDevices: filteredDevices.value,
-      isAdmin: isAdmin.value,
-      currentUser: currentUser.value,
-      selectedUserFilter: selectedUserFilter.value,
-      componentId: componentId.value
-    };
-    console.log('🐛 Debug data exposed to window.__deviceListDebug');
-  }
-};
 
-// Debug socket connection
-const debugSocketConnection = async () => {
-  console.log('🐛 [DEBUG] Socket connection info:');
-  console.log('Socket connected:', isSocketConnected());
-  console.log('Component ID:', componentId.value);
-  console.log('Is Admin:', isAdmin.value);
-  console.log('Current devices count:', devices.value.length);
-  
-  const debugInfo = getSocketDebugInfo();
-  console.log('Socket debug info:', debugInfo);
-  
-  // Test event trigger if we have devices
-  if (devices.value.length > 0) {
-    const testDevice = devices.value[0];
-    if (testDevice) {
-      console.log('🧪 [DEBUG] Triggering test event for:', testDevice.macAddress);
-      
-      try {
-        const response = await $fetch('/api/debug/trigger-event', {
-          method: 'POST',
-          body: {
-            type: 'device-update',
-            macAddress: testDevice.macAddress,
-            deviceName: testDevice.name
-          }
-        });
-        
-        console.log('✅ [DEBUG] Test event triggered:', response);
-        toast.add({
-          title: 'Debug Event Triggered',
-          description: `Test event sent for ${testDevice.name}`,
-          color: 'success'
-        });
-      } catch (error) {
-        console.error('❌ [DEBUG] Failed to trigger test event:', error);
-        toast.add({
-          title: 'Debug Error',
-          description: 'Failed to trigger test event',
-          color: 'error'
-        });
-      }
-    }
-  } else {
-    toast.add({
-      title: 'Debug Info',
-      description: `Socket connected: ${debugInfo.connected}, Components: ${debugInfo.componentCount}`,
-      color: 'info'
-    });
-  }
-};
 </script>
 
 <template>
@@ -701,17 +583,7 @@ const debugSocketConnection = async () => {
           </div>
         </div>
         
-        <!-- Debug button (admin only) -->
-        <UButton
-          v-if="isAdmin"
-          variant="outline"
-          color="warning"
-          icon="i-heroicons-bug-ant"
-          @click="debugSocketConnection"
-          size="sm"
-        >
-          Debug Socket
-        </UButton>
+
         
         <!-- Refresh button -->
         <UButton
@@ -774,8 +646,7 @@ const debugSocketConnection = async () => {
       <div
         v-for="(device, index) in filteredDevices"
         :key="device.macAddress"
-        :class="getDeviceGridClass(index)"
-        class="group relative overflow-hidden rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm hover:shadow-xl transition-all duration-500 hover:-translate-y-1"
+        class="col-span-1 row-span-2 group relative overflow-hidden rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm hover:shadow-xl transition-all duration-500 hover:-translate-y-1"
       >
         <!-- Status indicator -->
         <div class="absolute top-4 right-4 z-10">
@@ -825,7 +696,7 @@ const debugSocketConnection = async () => {
           <div class="flex-1">
             <HardwareInfo 
               :hardware="device.hardware" 
-              :variant="(device.hardware && getDeviceGridClass?.(index)?.includes('row-span-2')) ? 'default' : 'compact'"
+              :variant="(device.hardware) ? 'default' : 'compact'"
             />
           </div>
 
@@ -863,11 +734,7 @@ const debugSocketConnection = async () => {
       </div>
     </div>
     
-    <!-- Socket Debug Widget (admin only, development only) -->
-    <SocketDebugWidget 
-      v-if="isAdmin && $config.public.dev" 
-      :component-id="componentId" 
-    />
+
   </div>
 </template>
 

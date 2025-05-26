@@ -22,9 +22,7 @@ export default defineEventHandler(async (event) => {
     const userRole = session.user.role;
     
     // Check if user is admin
-    const isAdmin = userRole === 'admin' || (Array.isArray(userRole) && userRole.includes('admin'));
-    
-    console.log(`📋 [HTTP] Getting devices for user: ${userId} (Admin: ${isAdmin})`);
+    const isAdmin = !!(userRole && (userRole === 'admin' || (Array.isArray(userRole) && userRole.includes('admin'))));
 
     const db = useDrizzle();
     let query;
@@ -57,35 +55,10 @@ export default defineEventHandler(async (event) => {
 
     const deviceResults = await query;
 
-    // Debug: Log raw results for admin queries
-    if (isAdmin && deviceResults.length > 0) {
-      const sampleDevice = deviceResults[0] as any;
-      console.log('🔍 [HTTP] Raw device result sample:', {
-        device: sampleDevice,
-        fields: Object.keys(sampleDevice),
-        hasUserName: !!sampleDevice.userName,
-        hasUserEmail: !!sampleDevice.userEmail,
-        hasUserId: !!sampleDevice.userId
-      });
-    }
-
     const formattedDevices = deviceResults.map(device => ({
       ...device,
       lastSeen: device.lastSeen ? device.lastSeen.toISOString() : null
     }));
-
-    // Debug: Log formatted results for admin queries  
-    if (isAdmin && formattedDevices.length > 0) {
-      const sampleFormatted = formattedDevices[0] as any;
-      console.log('🔍 [HTTP] Formatted device sample:', {
-        device: sampleFormatted,
-        userName: sampleFormatted.userName,
-        userEmail: sampleFormatted.userEmail,
-        userId: sampleFormatted.userId
-      });
-    }
-
-    console.log(`✅ [HTTP] Found ${formattedDevices.length} devices${isAdmin ? ' (admin view)' : ` for user ${userId}`}`);
     
     return {
       success: true,
