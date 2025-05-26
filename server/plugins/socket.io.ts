@@ -56,31 +56,55 @@ export const broadcastDeviceUpdate = async (macAddress: string) => {
   }
 
   try {
-    console.log(`📡 Broadcasting update for: ${macAddress}`);
-
     const device = await useDrizzle()
-      .select()
+      .select({
+        macAddress: devices.macAddress,
+        name: devices.name,
+        ipAddress: devices.ipAddress,
+        isConnected: devices.isConnected,
+        lastSeen: devices.lastSeen,
+        hardware: devices.hardware,
+        userId: devices.userId,
+        userName: user.name,
+        userEmail: user.email,
+        createdAt: devices.createdAt,
+        updatedAt: devices.updatedAt
+      })
       .from(devices)
+      .leftJoin(user, eq(devices.userId, user.id))
       .where(eq(devices.macAddress, macAddress))
       .then(results => results[0]);
 
-    if (device) {
-      const formattedDevice = {
-        ...device,
-        lastSeen: device.lastSeen ? device.lastSeen.toISOString() : null
-      };
-
-      ioInstance.emit('device-update', formattedDevice);
-      console.log(`✅ Broadcast complete: ${device.name}`);
-    } else {
+    if (!device) {
       console.warn(`❌ Device not found: ${macAddress}`);
+      return;
     }
+
+    const formattedDevice = {
+      ...device,
+      lastSeen: device.lastSeen ? device.lastSeen.toISOString() : null
+    };
+
+    // Get all connected clients and check their permissions
+    const sockets = await ioInstance.fetchSockets();
+    
+    for (const socket of sockets) {
+      const socketUserId = socket.data.userId;
+      const isAdmin = socket.data.isAdmin || false;
+      
+      // Send to device owner or admin
+      if (socketUserId && (device.userId === socketUserId || isAdmin)) {
+        socket.emit('device-update', formattedDevice);
+      }
+    }
+
+    console.log(`✅ Targeted broadcast complete: ${device.name}`);
   } catch (error) {
     console.error('❌ Error broadcasting update:', error);
   }
 };
 
-// Broadcast device disconnection to all clients
+// Broadcast device disconnection to authorized clients only
 export const broadcastDeviceDisconnect = async (macAddress: string) => {
   if (!ioInstance) {
     console.warn('⚠️ Socket.IO not available for broadcast');
@@ -88,16 +112,38 @@ export const broadcastDeviceDisconnect = async (macAddress: string) => {
   }
 
   try {
-    console.log(`📡 Broadcasting disconnect: ${macAddress}`);
-    ioInstance.emit('device-disconnect', macAddress);
-    console.log(`✅ Disconnect broadcast complete`);
+    // Get device owner info
+    const device = await useDrizzle()
+      .select({ userId: devices.userId })
+      .from(devices)
+      .where(eq(devices.macAddress, macAddress))
+      .then(results => results[0]);
+
+    if (!device) {
+      console.warn(`❌ Device not found for disconnect: ${macAddress}`);
+      return;
+    }
+
+    // Get all connected clients and check their permissions
+    const sockets = await ioInstance.fetchSockets();
+    
+    for (const socket of sockets) {
+      const socketUserId = socket.data.userId;
+      const isAdmin = socket.data.isAdmin || false;
+      
+      // Send to device owner or admin
+      if (socketUserId && (device.userId === socketUserId || isAdmin)) {
+        socket.emit('device-disconnect', macAddress);
+      }
+    }
+
+    console.log(`✅ Targeted disconnect broadcast complete: ${macAddress}`);
   } catch (error) {
     console.error('❌ Error broadcasting disconnect:', error);
-    ioInstance.emit('device-disconnect', macAddress);
   }
 };
 
-// Broadcast device shutdown to all clients
+// Broadcast device shutdown to authorized clients only
 export const broadcastDeviceShutdown = async (macAddress: string) => {
   if (!ioInstance) {
     console.warn('⚠️ Socket.IO not available for broadcast');
@@ -105,12 +151,34 @@ export const broadcastDeviceShutdown = async (macAddress: string) => {
   }
 
   try {
-    console.log(`📡 Broadcasting shutdown: ${macAddress}`);
-    ioInstance.emit('device-shutdown', macAddress);
-    console.log(`✅ Shutdown broadcast complete`);
+    // Get device owner info
+    const device = await useDrizzle()
+      .select({ userId: devices.userId })
+      .from(devices)
+      .where(eq(devices.macAddress, macAddress))
+      .then(results => results[0]);
+
+    if (!device) {
+      console.warn(`❌ Device not found for shutdown: ${macAddress}`);
+      return;
+    }
+
+    // Get all connected clients and check their permissions
+    const sockets = await ioInstance.fetchSockets();
+    
+    for (const socket of sockets) {
+      const socketUserId = socket.data.userId;
+      const isAdmin = socket.data.isAdmin || false;
+      
+      // Send to device owner or admin
+      if (socketUserId && (device.userId === socketUserId || isAdmin)) {
+        socket.emit('device-shutdown', macAddress);
+      }
+    }
+
+    console.log(`✅ Targeted shutdown broadcast complete: ${macAddress}`);
   } catch (error) {
     console.error('❌ Error broadcasting shutdown:', error);
-    ioInstance.emit('device-shutdown', macAddress);
   }
 };
 
@@ -135,6 +203,28 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
 
   io.on('connection', (socket) => {
     console.log('🔌 New Socket.IO client:', socket.id);
+
+    // Store user session info in socket
+    socket.on('auth', async (data: { userId: string; userRole?: string }) => {
+      const { userId, userRole } = data;
+      
+      // Store user info in socket data
+      socket.data.userId = userId;
+      socket.data.userRole = userRole;
+      
+      // Join user room
+      socket.join(`user:${userId}`);
+      
+      // Join admin room if user is admin
+      const isAdmin = !!(userRole && (userRole === 'admin' || (Array.isArray(userRole) && userRole.includes('admin'))));
+      if (isAdmin) {
+        socket.join('admin');
+        socket.data.isAdmin = true;
+      }
+      
+      console.log(`🔐 User authenticated: ${userId} (Admin: ${isAdmin})`);
+      socket.emit('auth-success', { userId, isAdmin });
+    });
 
     // Test handler for debugging
     socket.on('test-from-client', (data) => {

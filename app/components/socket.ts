@@ -189,7 +189,6 @@ const initSocket = (): Socket => {
 
   socket.on('connect', () => {
     console.log('✅ Socket.IO connected:', socket?.id);
-    console.log('🔗 Socket instance:', socket);
     
     // Test listener to check if events are received
     socket?.on('device-update', (data) => {
@@ -240,6 +239,36 @@ export const getSocket = (): Socket => {
     return initSocket();
   }
   return socket;
+};
+
+// Authenticate user with socket
+export const authenticateSocket = async (userId: string, userRole?: string): Promise<boolean> => {
+  return new Promise((resolve, reject) => {
+    const socketInstance = getSocket();
+    
+    if (!socketInstance.connected) {
+      console.warn('⚠️ Socket not connected for authentication');
+      reject(new Error('Socket not connected'));
+      return;
+    }
+
+    console.log(`🔐 Authenticating socket for user: ${userId} (Role: ${userRole})`);
+
+    const timeoutId = setTimeout(() => {
+      console.error('⏰ Socket authentication timeout');
+      socketInstance.off('auth-success', onAuthSuccess);
+      reject(new Error('Authentication timeout'));
+    }, 5000);
+
+    const onAuthSuccess = (data: { userId: string; isAdmin: boolean }) => {
+      clearTimeout(timeoutId);
+      console.log(`✅ Socket authenticated: ${data.userId} (Admin: ${data.isAdmin})`);
+      resolve(true);
+    };
+
+    socketInstance.once('auth-success', onAuthSuccess);
+    socketInstance.emit('auth', { userId, userRole });
+  });
 };
 
 // Check if socket is connected

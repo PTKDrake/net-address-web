@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {sendShutdownCommand, getDevicesViaSocket, setupDeviceListeners, cleanupDeviceListeners, isSocketConnected} from './socket';
+import {sendShutdownCommand, getDevicesViaSocket, setupDeviceListeners, cleanupDeviceListeners, isSocketConnected, authenticateSocket} from './socket';
 import {onBeforeUnmount, onMounted, ref, nextTick} from 'vue';
 import {getSession, authClient} from '~~/lib/auth-client';
 import type { HardwareInfo } from '~~/db/deviceSchema';
@@ -474,8 +474,18 @@ onMounted(async () => {
     });
   };
 
-  // Wait for socket then fetch devices
+  // Wait for socket then authenticate and fetch devices
   await waitForSocket();
+  
+  // Authenticate socket with user info
+  if (currentUser.value) {
+    try {
+      await authenticateSocket(currentUser.value.id, currentUser.value.role);
+    } catch (error) {
+      console.error('Failed to authenticate socket:', error);
+    }
+  }
+  
   await fetchDevices();
 
   // Auto-refresh every 3 minutes as backup
@@ -601,7 +611,7 @@ const handleRefresh = async () => {
     <!-- Error message -->
     <UAlert
       v-if="error"
-      variant="destructive"
+      color="error"
       title="Error"
       :description="error"
       class="mb-6"
